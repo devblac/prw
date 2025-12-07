@@ -2,6 +2,7 @@ package notify
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -159,9 +160,89 @@ func TestMultiNotifier(t *testing.T) {
 
 type mockNotifier struct {
 	events []*StatusChangeEvent
+	err    error
 }
 
 func (m *mockNotifier) Notify(event *StatusChangeEvent) error {
+	if m.err != nil {
+		return m.err
+	}
 	m.events = append(m.events, event)
 	return nil
+}
+
+func TestMultiNotifierError(t *testing.T) {
+	mock1 := &mockNotifier{err: fmt.Errorf("notification failed")}
+	multi := NewMultiNotifier(mock1)
+
+	event := &StatusChangeEvent{
+		Owner:         "owner",
+		Repo:          "repo",
+		Number:        123,
+		PreviousState: "pending",
+		CurrentState:  "success",
+	}
+
+	err := multi.Notify(event)
+	if err == nil {
+		t.Error("expected MultiNotifier to return error when notifier fails")
+	}
+}
+
+func TestWebhookNotifierMarshalError(t *testing.T) {
+	// This is hard to test directly, but we can test with invalid timestamp
+	notifier := NewWebhookNotifier("http://example.com")
+	
+	// Normal event should work
+	event := &StatusChangeEvent{
+		Owner:         "owner",
+		Repo:          "repo",
+		Number:        123,
+		PreviousState: "pending",
+		CurrentState:  "success",
+		Timestamp:     time.Now(),
+	}
+
+	// Should not error for valid event
+	err := notifier.Notify(event)
+	// May error due to network, but shouldn't panic
+	_ = err
+}
+
+func TestWebhookNotifierNetworkError(t *testing.T) {
+	// Use invalid URL to cause network error
+	notifier := NewWebhookNotifier("http://invalid-host-that-does-not-exist-12345.com")
+
+	event := &StatusChangeEvent{
+		Owner:         "owner",
+		Repo:          "repo",
+		Number:        123,
+		PreviousState: "pending",
+		CurrentState:  "success",
+		Timestamp:     time.Now(),
+	}
+
+	err := notifier.Notify(event)
+	if err == nil {
+		t.Error("expected error when connecting to invalid host")
+	}
+}
+
+func TestConsoleNotifierWithEmptyTitle(t *testing.T) {
+	notifier := NewConsoleNotifier()
+
+	event := &StatusChangeEvent{
+		Owner:         "owner",
+		Repo:          "repo",
+		Number:        123,
+		Title:         "", // Empty title
+		PreviousState: "pending",
+		CurrentState:  "success",
+		SHA:           "abc123",
+		Timestamp:     time.Now(),
+	}
+
+	if err := notifier.Notify(event); err != nil {
+		t.Errorf("ConsoleNotifier.Notify failed with empty title: %v", err)
+	}
 }

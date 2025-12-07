@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -284,5 +285,72 @@ func TestConfigJSONMarshaling(t *testing.T) {
 	}
 	if len(decoded.WatchedPRs) != 1 {
 		t.Fatalf("expected 1 PR, got %d", len(decoded.WatchedPRs))
+	}
+}
+
+func TestLoadWithMissingPollInterval(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".prw", "config.json")
+
+	oldConfigPath := ConfigPath
+	defer func() { ConfigPath = oldConfigPath }()
+	ConfigPath = func() (string, error) {
+		return configPath, nil
+	}
+
+	// Write config without poll_interval_seconds
+	os.MkdirAll(filepath.Dir(configPath), 0755)
+	os.WriteFile(configPath, []byte(`{"webhook_url":"test","watched_prs":[]}`), 0600)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+
+	// Should apply default
+	if cfg.PollIntervalSeconds != 20 {
+		t.Errorf("expected default poll interval 20, got %d", cfg.PollIntervalSeconds)
+	}
+}
+
+func TestSaveCreatesDirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "nonexistent", ".prw", "config.json")
+
+	oldConfigPath := ConfigPath
+	defer func() { ConfigPath = oldConfigPath }()
+	ConfigPath = func() (string, error) {
+		return configPath, nil
+	}
+
+	cfg := DefaultConfig()
+	err := cfg.Save()
+	if err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	// Verify file was created
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		t.Error("config file was not created")
+	}
+}
+
+func TestConfigPathError(t *testing.T) {
+	// Temporarily break ConfigPath
+	oldConfigPath := ConfigPath
+	defer func() { ConfigPath = oldConfigPath }()
+	ConfigPath = func() (string, error) {
+		return "", fmt.Errorf("test error")
+	}
+
+	_, err := Load()
+	if err == nil {
+		t.Error("expected Load to fail when ConfigPath fails")
+	}
+
+	cfg := DefaultConfig()
+	err = cfg.Save()
+	if err == nil {
+		t.Error("expected Save to fail when ConfigPath fails")
 	}
 }

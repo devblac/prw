@@ -3,6 +3,7 @@ package watcher
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -44,11 +45,51 @@ func (m *mockGitHubClient) GetCombinedStatus(owner, repo, ref string) (*github.C
 // mockNotifier implements Notifier for testing.
 type mockNotifier struct {
 	events []*notify.StatusChangeEvent
+	err    error
 }
 
 func (m *mockNotifier) Notify(event *notify.StatusChangeEvent) error {
+	if m.err != nil {
+		return m.err
+	}
 	m.events = append(m.events, event)
 	return nil
+}
+
+func TestWatcherNotificationError(t *testing.T) {
+	pr := &github.PullRequest{
+		Number: 1,
+		Title:  "Test PR",
+	}
+	pr.Head.SHA = "sha123"
+
+	client := &mockGitHubClient{
+		prs: map[string]*github.PullRequest{
+			"owner/repo/1": pr,
+		},
+		statuses: map[string]*github.CombinedStatus{
+			"sha123": {State: "success", SHA: "sha123"},
+		},
+	}
+
+	cfg := &config.Config{
+		WatchedPRs: []config.WatchedPR{
+			{
+				Owner:          "owner",
+				Repo:           "repo",
+				Number:         1,
+				LastKnownState: "pending",
+			},
+		},
+	}
+
+	notifier := &mockNotifier{err: fmt.Errorf("notification failed")}
+	w := New(client, cfg, notifier)
+
+	// Should not return error, just print warning
+	if err := w.checkPR(&cfg.WatchedPRs[0]); err != nil {
+		t.Errorf("checkPR should not fail when notification fails: %v", err)
+	}
 }
 
 func TestWatcherNoStatusChange(t *testing.T) {
@@ -298,5 +339,138 @@ func TestWatcherUpdateTitle(t *testing.T) {
 	// Title should be updated
 	if cfg.WatchedPRs[0].Title != "Updated Title" {
 		t.Errorf("expected title to be updated, got %q", cfg.WatchedPRs[0].Title)
+	}
+}
+
+func TestWatcherStatusError(t *testing.T) {
+	pr := &github.PullRequest{
+		Number: 1,
+		Title:  "Test PR",
+	}
+	pr.Head.SHA = "sha123"
+
+	client := &mockGitHubClient{
+		prs: map[string]*github.PullRequest{
+			"owner/repo/1": pr,
+		},
+		statuses: map[string]*github.CombinedStatus{},
+		err:      fmt.Errorf("status fetch failed"),
+	}
+
+	cfg := &config.Config{
+		WatchedPRs: []config.WatchedPR{
+			{
+				Owner:          "owner",
+				Repo:           "repo",
+				Number:         1,
+				LastKnownState: "success",
+			},
+		},
+	}
+
+	notifier := &mockNotifier{}
+	w := New(client, cfg, notifier)
+
+	err := w.checkPR(&cfg.WatchedPRs[0])
+	if err == nil {
+		t.Error("expected error when status fetch fails")
+	}
+}
+
+func TestWatcherCheckAllPRs(t *testing.T) {
+	pr1 := &github.PullRequest{Number: 1, Title: "PR1"}
+	pr1.Head.SHA = "sha1"
+	pr2 := &github.PullRequest{Number: 2, Title: "PR2"}
+	pr2.Head.SHA = "sha2"
+
+	client := &mockGitHubClient{
+		prs: map[string]*github.PullRequest{
+			"owner/repo/1": pr1,
+			"owner/repo/2": pr2,
+		},
+		statuses: map[string]*github.CombinedStatus{
+			"sha1": {State: "success", SHA: "sha1"},
+			"sha2": {State: "failure", SHA: "sha2"},
+		},
+	}
+
+	cfg := &config.Config{
+		PollIntervalSeconds: 1,
+		WatchedPRs: []config.WatchedPR{
+			{Owner: "owner", Repo: "repo", Number: 1, LastKnownState: "pending"},
+			{Owner: "owner", Repo: "repo", Number: 2, LastKnownState: "pending"},
+		},
+	}
+
+	notifier := &mockNotifier{}
+	w := New(client, cfg, notifier)
+
+	w.checkAllPRs()
+
+	// Both PRs should be notified
+	if len(notifier.events) != 2 {
+		t.Errorf("expected 2 notifications, got %d", len(notifier.events))
+	}
+}
+
+func TestWatcherCheckAllPRsWithError(t *testing.T) {
+	// Create a client that will fail for one PR
+	pr1 := &github.PullRequest{Number: 1, Title: "PR1"}
+	pr1.Head.SHA = "sha1"
+
+	client := &mockGitHubClient{
+		prs: map[string]*github.PullRequest{
+			"owner/repo/1": pr1,
+		},
+		statuses: map[string]*github.CombinedStatus{
+			"sha1": {State: "success", SHA: "sha1"},
+		},
+	}
+
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "nonexistent", "deep", "path", "config.json")
+
+	oldConfigPath := config.ConfigPath
+	defer func() { config.ConfigPath = oldConfigPath }()
+	config.ConfigPath = func() (string, error) {
+		return configPath, nil
+	}
+
+	cfg := &config.Config{
+		PollIntervalSeconds: 1,
+		WatchedPRs: []config.WatchedPR{
+			{Owner: "owner", Repo: "repo", Number: 1, LastKnownState: "pending"},
+			{Owner: "badowner", Repo: "badrepo", Number: 999, LastKnownState: "pending"},
+		},
+	}
+
+	notifier := &mockNotifier{}
+	w := New(client, cfg, notifier)
+
+	// This should handle errors gracefully and print warnings
+	w.checkAllPRs()
+
+	// Only one PR should be successfully checked
+	if len(notifier.events) != 1 {
+		t.Errorf("expected 1 successful notification, got %d", len(notifier.events))
+	}
+}
+
+func TestWatcherNoPRs(t *testing.T) {
+	client := &mockGitHubClient{}
+	cfg := &config.Config{
+		PollIntervalSeconds: 1,
+		WatchedPRs:          []config.WatchedPR{},
+	}
+	notifier := &mockNotifier{}
+	w := New(client, cfg, notifier)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	err := w.Run(ctx)
+	// Run returns nil immediately when there are no PRs
+	if err != nil {
+		t.Errorf("expected nil, got %v", err)
 	}
 }
