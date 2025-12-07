@@ -30,12 +30,13 @@ This file tracks the project's development status and planned work. It's a livin
   - `prw list --json` machine-friendly output
   - PR title fetching and display in lists/notifications
   - Notification filters via `--on` flag and config
+- ✅ Release workflow and cross-platform binaries
+- ✅ CHANGELOG maintenance
+- ✅ Issue and PR templates
 
 ## In Progress
 
-- Release workflow and cross-platform binaries
-- CHANGELOG maintenance
-- Issue/PR templates refinement
+No active items.
 
 ## Planned
 
