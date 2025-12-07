@@ -223,7 +223,10 @@ var configShowCmd = &cobra.Command{
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		path, _ := config.ConfigPath()
+		path, err := config.ConfigPath()
+		if err != nil {
+			return fmt.Errorf("failed to determine config path: %w", err)
+		}
 		fmt.Printf("Config file: %s\n\n", path)
 		fmt.Printf("poll_interval_seconds: %d\n", cfg.PollIntervalSeconds)
 		fmt.Printf("webhook_url: %s\n", cfg.WebhookURL)
