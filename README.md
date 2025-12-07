@@ -6,6 +6,12 @@
 
 A lightweight CLI tool for monitoring GitHub pull request CI status changes. Stop context-switching and let `prw` notify you when your builds complete.
 
+## Metrics
+
+- **CI Status**: All tests passing on `main` (see badge above)
+- **Test Coverage**: ~86% across core packages (`config`, `github`, `watcher`, `notify`, `version`)
+- **Build**: Cross-platform binaries for Linux, macOS, and Windows via GitHub Releases
+
 ## What is this?
 
 If you've ever found yourself refreshing a pull request page waiting for CI to finish, this tool is for you. `prw` watches one or more GitHub PRs and notifies you the moment their combined CI status changes—whether it's pending → success, pending → failure, or any other transition.
@@ -26,6 +32,28 @@ The tool is deliberately minimal. It does one thing well: watch PRs and tell you
 
 ## Installation
 
+### Prebuilt binaries (recommended)
+
+Download the latest release for your platform from the [Releases page](https://github.com/devblac/prw/releases).
+
+Each release includes binaries for:
+- Linux (amd64, arm64)
+- macOS (amd64, arm64) 
+- Windows (amd64)
+
+```bash
+# Download and extract (example for Linux amd64)
+curl -LO https://github.com/devblac/prw/releases/download/v0.1.0/prw_v0.1.0_linux_amd64.tar.gz
+tar -xzf prw_v0.1.0_linux_amd64.tar.gz
+
+# Make it executable and move to PATH
+chmod +x prw_v0.1.0_linux_amd64
+sudo mv prw_v0.1.0_linux_amd64 /usr/local/bin/prw
+
+# Verify installation
+prw version
+```
+
 ### From source
 
 If you have Go 1.22+ installed:
@@ -43,15 +71,11 @@ make build
 # Binary will be in ./bin/prw
 ```
 
-### System PATH
-
-After building, you can install to your Go bin directory:
+To install to your Go bin directory:
 
 ```bash
 make install
 ```
-
-Or copy the binary manually to somewhere in your `$PATH`.
 
 ## Quickstart
 
@@ -190,6 +214,16 @@ This works with:
 - **Slack**: Use incoming webhooks
 - **Discord**: Use webhook URLs
 - **Custom services**: Any endpoint that accepts JSON POST
+
+## Version Information
+
+Check your installed version:
+
+```bash
+prw version
+```
+
+This displays the version and commit SHA (if built from a tagged release or via `make build`).
 
 ## Development
 

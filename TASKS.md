@@ -29,7 +29,9 @@ This file tracks the project's development status and planned work. It's a livin
 
 ## In Progress
 
-Nothing actively in progress. The v1 foundation is complete.
+- Release workflow and cross-platform binaries
+- CHANGELOG maintenance
+- Issue/PR templates refinement
 
 ## Planned
 
@@ -53,8 +55,6 @@ Nothing actively in progress. The v1 foundation is complete.
 - Interactive TUI mode for managing watches without separate commands
 - Shell completions (bash, zsh, fish)
 - Homebrew formula for easier installation
-- Release automation with goreleaser
-- Pre-built binaries for multiple platforms
 
 ### Quality and observability
 
@@ -90,4 +90,4 @@ These are explicitly out of scope for the initial version:
 - Prioritize reliability and usability over feature count
 - Community feedback will shape the roadmap
 
-Last updated: 2025-12-06
+Last updated: 2025-12-07
