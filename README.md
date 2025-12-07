@@ -3,6 +3,8 @@
 [![CI](https://github.com/devblac/prw/workflows/CI/badge.svg)](https://github.com/devblac/prw/actions)
 [![Go Report Card](https://goreportcard.com/badge/github.com/devblac/prw)](https://goreportcard.com/report/github.com/devblac/prw)
 [![codecov](https://codecov.io/gh/devblac/prw/branch/main/graph/badge.svg)](https://codecov.io/gh/devblac/prw)
+[![Go Version](https://img.shields.io/badge/go-1.22-blue.svg)](https://golang.org)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 A lightweight CLI tool for monitoring GitHub pull request CI status changes. Stop context-switching and let `prw` notify you when your builds complete.
 
