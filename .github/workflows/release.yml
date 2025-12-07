@@ -1,0 +1,75 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build and Release
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Build cross-platform binaries
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+        run: |
+          # Extract version and commit for ldflags
+          COMMIT=$(git rev-parse --short HEAD)
+          LDFLAGS="-X github.com/devblac/prw/internal/version.Version=${VERSION} -X github.com/devblac/prw/internal/version.Commit=${COMMIT}"
+          
+          # Create dist directory
+          mkdir -p dist
+          
+          # Build for each platform
+          echo "Building linux/amd64..."
+          GOOS=linux GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o dist/prw_${VERSION}_linux_amd64 ./cmd/prw
+          tar -czf dist/prw_${VERSION}_linux_amd64.tar.gz -C dist prw_${VERSION}_linux_amd64
+          
+          echo "Building linux/arm64..."
+          GOOS=linux GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o dist/prw_${VERSION}_linux_arm64 ./cmd/prw
+          tar -czf dist/prw_${VERSION}_linux_arm64.tar.gz -C dist prw_${VERSION}_linux_arm64
+          
+          echo "Building darwin/amd64..."
+          GOOS=darwin GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o dist/prw_${VERSION}_darwin_amd64 ./cmd/prw
+          tar -czf dist/prw_${VERSION}_darwin_amd64.tar.gz -C dist prw_${VERSION}_darwin_amd64
+          
+          echo "Building darwin/arm64..."
+          GOOS=darwin GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o dist/prw_${VERSION}_darwin_arm64 ./cmd/prw
+          tar -czf dist/prw_${VERSION}_darwin_arm64.tar.gz -C dist prw_${VERSION}_darwin_arm64
+          
+          echo "Building windows/amd64..."
+          GOOS=windows GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o dist/prw_${VERSION}_windows_amd64.exe ./cmd/prw
+          tar -czf dist/prw_${VERSION}_windows_amd64.tar.gz -C dist prw_${VERSION}_windows_amd64.exe
+          
+          # List built files
+          ls -lh dist/*.tar.gz
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: dist/*.tar.gz
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
