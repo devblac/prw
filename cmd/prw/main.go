@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
 	"strconv"
 	"syscall"
 	"text/tabwriter"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -41,7 +43,15 @@ func init() {
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(versionCmd)
+
+	listCmd.Flags().BoolVar(&listJSON, "json", false, "output watched PRs as JSON")
+	runCmd.Flags().StringVar(&notifyFilter, "on", "", "notify on: change, fail, or success")
 }
+
+var (
+	listJSON     bool
+	notifyFilter string
+)
 
 var watchCmd = &cobra.Command{
 	Use:   "watch <PR_URL>",
@@ -100,6 +110,10 @@ var listCmd = &cobra.Command{
 		cfg, err := config.Load()
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
+		}
+
+		if listJSON {
+			return outputJSONList(cfg.WatchedPRs)
 		}
 
 		if len(cfg.WatchedPRs) == 0 {
@@ -191,6 +205,15 @@ Press Ctrl+C to stop.`,
 		}
 		notifier := notify.NewMultiNotifier(notifiers...)
 
+		filter := cfg.NotificationFilter
+		if notifyFilter != "" {
+			filter = config.NormalizeNotificationFilter(notifyFilter)
+			if !config.IsValidNotificationFilter(filter) {
+				return fmt.Errorf("invalid --on value %q (expected change, fail, or success)", notifyFilter)
+			}
+		}
+		cfg.NotificationFilter = filter
+
 		w := watcher.New(client, cfg, notifier)
 
 		// Setup signal handling
@@ -230,6 +253,7 @@ var configShowCmd = &cobra.Command{
 		fmt.Printf("Config file: %s\n\n", path)
 		fmt.Printf("poll_interval_seconds: %d\n", cfg.PollIntervalSeconds)
 		fmt.Printf("webhook_url: %s\n", cfg.WebhookURL)
+		fmt.Printf("notification_filter: %s\n", cfg.NotificationFilter)
 
 		tokenSource := "not set"
 		if cfg.GitHubToken != "" {
@@ -252,7 +276,8 @@ var configSetCmd = &cobra.Command{
 Supported keys:
   - poll_interval_seconds: polling interval in seconds (default: 20)
   - webhook_url: URL to POST notifications to
-  - github_token: GitHub personal access token`,
+  - github_token: GitHub personal access token
+  - notification_filter: change, fail, or success`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		key := args[0]
@@ -274,6 +299,12 @@ Supported keys:
 			cfg.WebhookURL = value
 		case "github_token":
 			cfg.GitHubToken = value
+		case "notification_filter":
+			filter := config.NormalizeNotificationFilter(value)
+			if !config.IsValidNotificationFilter(filter) {
+				return fmt.Errorf("notification_filter must be one of: change, fail, success")
+			}
+			cfg.NotificationFilter = filter
 		default:
 			return fmt.Errorf("unknown config key: %s", key)
 		}
@@ -306,6 +337,8 @@ var configUnsetCmd = &cobra.Command{
 			cfg.WebhookURL = ""
 		case "github_token":
 			cfg.GitHubToken = ""
+		case "notification_filter":
+			cfg.NotificationFilter = config.NotificationFilterChange
 		default:
 			return fmt.Errorf("unknown config key: %s", key)
 		}
@@ -331,4 +364,42 @@ func init() {
 	configCmd.AddCommand(configShowCmd)
 	configCmd.AddCommand(configSetCmd)
 	configCmd.AddCommand(configUnsetCmd)
+}
+
+type listPROutput struct {
+	Owner       string     `json:"owner"`
+	Repo        string     `json:"repo"`
+	Number      int        `json:"number"`
+	Status      string     `json:"status"`
+	LastChecked *time.Time `json:"last_checked,omitempty"`
+	Title       string     `json:"title,omitempty"`
+}
+
+func outputJSONList(prs []config.WatchedPR) error {
+	output := make([]listPROutput, 0, len(prs))
+	for _, pr := range prs {
+		status := pr.LastKnownState
+		if status == "" {
+			status = "unknown"
+		} else {
+			status = github.NormalizeState(status)
+		}
+		var lastChecked *time.Time
+		if !pr.LastChecked.IsZero() {
+			t := pr.LastChecked
+			lastChecked = &t
+		}
+		output = append(output, listPROutput{
+			Owner:       pr.Owner,
+			Repo:        pr.Repo,
+			Number:      pr.Number,
+			Status:      status,
+			LastChecked: lastChecked,
+			Title:       pr.Title,
+		})
+	}
+
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(output)
 }

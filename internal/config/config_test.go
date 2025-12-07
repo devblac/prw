@@ -14,6 +14,9 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.PollIntervalSeconds != 20 {
 		t.Errorf("expected default poll interval 20, got %d", cfg.PollIntervalSeconds)
 	}
+	if cfg.NotificationFilter != NotificationFilterChange {
+		t.Errorf("expected default notification filter %q, got %q", NotificationFilterChange, cfg.NotificationFilter)
+	}
 	if cfg.WatchedPRs == nil {
 		t.Error("expected WatchedPRs to be initialized")
 	}
@@ -39,6 +42,7 @@ func TestConfigSaveAndLoad(t *testing.T) {
 		PollIntervalSeconds: 30,
 		WebhookURL:          "https://example.com/webhook",
 		GitHubToken:         "test-token",
+		NotificationFilter:  NotificationFilterFail,
 		WatchedPRs: []WatchedPR{
 			{
 				Owner:          "owner",
@@ -72,6 +76,9 @@ func TestConfigSaveAndLoad(t *testing.T) {
 	if loaded.GitHubToken != "test-token" {
 		t.Errorf("expected GitHubToken to match, got %s", loaded.GitHubToken)
 	}
+	if loaded.NotificationFilter != NotificationFilterFail {
+		t.Errorf("expected NotificationFilter to match, got %s", loaded.NotificationFilter)
+	}
 	if len(loaded.WatchedPRs) != 1 {
 		t.Fatalf("expected 1 watched PR, got %d", len(loaded.WatchedPRs))
 	}
@@ -99,6 +106,9 @@ func TestLoadNonExistentConfig(t *testing.T) {
 
 	if cfg.PollIntervalSeconds != 20 {
 		t.Errorf("expected default poll interval, got %d", cfg.PollIntervalSeconds)
+	}
+	if cfg.NotificationFilter != NotificationFilterChange {
+		t.Errorf("expected default notification filter, got %s", cfg.NotificationFilter)
 	}
 }
 
@@ -311,6 +321,9 @@ func TestLoadWithMissingPollInterval(t *testing.T) {
 	if cfg.PollIntervalSeconds != 20 {
 		t.Errorf("expected default poll interval 20, got %d", cfg.PollIntervalSeconds)
 	}
+	if cfg.NotificationFilter != NotificationFilterChange {
+		t.Errorf("expected default notification filter, got %s", cfg.NotificationFilter)
+	}
 }
 
 func TestSaveCreatesDirectory(t *testing.T) {
@@ -352,5 +365,26 @@ func TestConfigPathError(t *testing.T) {
 	err = cfg.Save()
 	if err == nil {
 		t.Error("expected Save to fail when ConfigPath fails")
+	}
+}
+
+func TestNormalizeNotificationFilter(t *testing.T) {
+	tests := []struct {
+		value    string
+		expected string
+	}{
+		{"fail", NotificationFilterFail},
+		{"success", NotificationFilterSuccess},
+		{"change", NotificationFilterChange},
+		{"", NotificationFilterChange},
+		{"  SUCCESS ", NotificationFilterSuccess},
+		{"unknown", NotificationFilterChange},
+	}
+
+	for _, tt := range tests {
+		result := normalizeNotificationFilter(tt.value)
+		if result != tt.expected {
+			t.Errorf("normalizeNotificationFilter(%q) = %q, expected %q", tt.value, result, tt.expected)
+		}
 	}
 }

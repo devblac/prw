@@ -85,11 +85,6 @@ func (w *Watcher) checkPR(pr *config.WatchedPR) error {
 		return fmt.Errorf("failed to fetch PR: %w", err)
 	}
 
-	// Update title if we got it
-	if pr.Title == "" && ghPR.Title != "" {
-		pr.Title = ghPR.Title
-	}
-
 	currentSHA := ghPR.Head.SHA
 
 	// Fetch combined status for the head commit
@@ -101,8 +96,13 @@ func (w *Watcher) checkPR(pr *config.WatchedPR) error {
 	currentState := github.NormalizeState(status.State)
 	previousState := github.NormalizeState(pr.LastKnownState)
 
+	// Refresh title when available
+	if ghPR.Title != "" && ghPR.Title != pr.Title {
+		pr.Title = ghPR.Title
+	}
+
 	// Check if status changed
-	if previousState != "" && previousState != currentState {
+	if previousState != "" && previousState != currentState && shouldNotify(w.config.NotificationFilter, currentState) {
 		event := &notify.StatusChangeEvent{
 			Owner:         pr.Owner,
 			Repo:          pr.Repo,
@@ -125,4 +125,18 @@ func (w *Watcher) checkPR(pr *config.WatchedPR) error {
 	pr.LastChecked = time.Now()
 
 	return nil
+}
+
+func shouldNotify(filter, currentState string) bool {
+	if !config.IsValidNotificationFilter(filter) {
+		filter = config.NotificationFilterChange
+	}
+	switch filter {
+	case config.NotificationFilterFail:
+		return currentState == "failure" || currentState == "error"
+	case config.NotificationFilterSuccess:
+		return currentState == "success"
+	default:
+		return true
+	}
 }

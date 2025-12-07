@@ -26,6 +26,10 @@ This file tracks the project's development status and planned work. It's a livin
   - CONTRIBUTING guide
   - SECURITY policy
   - This tasks file
+- ✅ Phase 1 improvements:
+  - `prw list --json` machine-friendly output
+  - PR title fetching and display in lists/notifications
+  - Notification filters via `--on` flag and config
 
 ## In Progress
 
@@ -41,6 +45,11 @@ This file tracks the project's development status and planned work. It's a livin
 - Desktop notifications using OS-native APIs (macOS, Linux, Windows)
 - Retry logic with exponential backoff for transient API errors
 - Better error messages when GitHub token lacks required permissions
+- Local HTTP server mode (`prw serve`)
+- TUI dashboard (`prw ui`)
+- Notification plugin system
+- Flakiness detection and handling
+- Mergeability checks/rules
 
 ### Feature additions
 

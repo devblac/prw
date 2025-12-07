@@ -28,6 +28,8 @@ The tool is deliberately minimal. It does one thing well: watch PRs and tell you
 - **Terminal notifications** with clear, actionable output
 - **Configurable polling** interval to balance responsiveness and API usage
 - **Persistent state** - remembers watched PRs between sessions
+- **PR titles** shown alongside PR numbers in lists and notifications
+- **JSON output** for automation via `prw list --json`
 - **Zero dependencies** beyond your GitHub Personal Access Token
 
 ## Installation
@@ -43,12 +45,12 @@ Each release includes binaries for:
 
 ```bash
 # Download and extract (example for Linux amd64)
-curl -LO https://github.com/devblac/prw/releases/download/v0.1.0/prw_v0.1.0_linux_amd64.tar.gz
-tar -xzf prw_v0.1.0_linux_amd64.tar.gz
+curl -LO https://github.com/devblac/prw/releases/download/v0.2.0/prw_v0.2.0_linux_amd64.tar.gz
+tar -xzf prw_v0.2.0_linux_amd64.tar.gz
 
 # Make it executable and move to PATH
-chmod +x prw_v0.1.0_linux_amd64
-sudo mv prw_v0.1.0_linux_amd64 /usr/local/bin/prw
+chmod +x prw_v0.2.0_linux_amd64
+sudo mv prw_v0.2.0_linux_amd64 /usr/local/bin/prw
 
 # Verify installation
 prw version
@@ -122,6 +124,28 @@ List all watched PRs:
 ```bash
 prw list
 ```
+Titles are fetched from GitHub and shown alongside the PR number.
+
+Machine-friendly output:
+
+```bash
+prw list --json
+```
+
+Example JSON:
+
+```json
+[
+  {
+    "owner": "kubernetes",
+    "repo": "kubernetes",
+    "number": 12345,
+    "status": "success",
+    "last_checked": "2025-12-06T10:30:00Z",
+    "title": "Fix controller race condition"
+  }
+]
+```
 
 Stop watching a PR:
 
@@ -154,6 +178,7 @@ prw config set webhook_url https://hooks.slack.com/services/YOUR/WEBHOOK/URL
 ```json
 {
   "poll_interval_seconds": 20,
+  "notification_filter": "change",
   "webhook_url": "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXX",
   "github_token": "",
   "watched_prs": [
@@ -214,6 +239,23 @@ This works with:
 - **Slack**: Use incoming webhooks
 - **Discord**: Use webhook URLs
 - **Custom services**: Any endpoint that accepts JSON POST
+
+### Notification filters
+
+Control when notifications fire:
+
+```bash
+# Only when a PR turns red
+prw run --on fail
+
+# Only when a PR turns green
+prw run --on success
+
+# Default: any state change
+prw run --on change
+```
+
+The same setting can be persisted via `prw config set notification_filter <value>`.
 
 ## Version Information
 

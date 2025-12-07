@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Issue and pull request templates
 - This changelog
 
+## v0.2.0 - 2025-12-07
+
+- Added `--json` flag for `prw list`
+- Added PR title caching and display
+- Added notification filters (--on fail|success|change)
+
 ## [0.1.0] - 2025-12-07
 
 ### Added
@@ -28,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Complete documentation: README, CONTRIBUTING, SECURITY, QUICKSTART
 - MIT license
 
-[Unreleased]: https://github.com/devblac/prw/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/devblac/prw/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/devblac/prw/releases/tag/v0.2.0
 [0.1.0]: https://github.com/devblac/prw/releases/tag/v0.1.0
 

@@ -4,7 +4,7 @@ import "fmt"
 
 // These variables can be set at build time using ldflags.
 var (
-	Version = "dev"
+	Version = "0.2.0"
 	Commit  = "unknown"
 )
 

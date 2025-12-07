@@ -474,3 +474,83 @@ func TestWatcherNoPRs(t *testing.T) {
 		t.Errorf("expected nil, got %v", err)
 	}
 }
+
+func TestWatcherNotificationFilterFailOnly(t *testing.T) {
+	pr := &github.PullRequest{
+		Number: 1,
+		Title:  "Test PR",
+	}
+	pr.Head.SHA = "sha123"
+
+	client := &mockGitHubClient{
+		prs: map[string]*github.PullRequest{
+			"owner/repo/1": pr,
+		},
+		statuses: map[string]*github.CombinedStatus{
+			"sha123": {State: "success", SHA: "sha123"},
+		},
+	}
+
+	cfg := &config.Config{
+		NotificationFilter: config.NotificationFilterFail,
+		WatchedPRs: []config.WatchedPR{
+			{
+				Owner:          "owner",
+				Repo:           "repo",
+				Number:         1,
+				LastKnownState: "pending",
+			},
+		},
+	}
+
+	notifier := &mockNotifier{}
+	w := New(client, cfg, notifier)
+
+	if err := w.checkPR(&cfg.WatchedPRs[0]); err != nil {
+		t.Fatalf("checkPR failed: %v", err)
+	}
+
+	if len(notifier.events) != 0 {
+		t.Fatalf("expected no notification when filter is fail and state is success")
+	}
+}
+
+func TestWatcherNotificationFilterSuccessOnly(t *testing.T) {
+	pr := &github.PullRequest{
+		Number: 1,
+		Title:  "Test PR",
+	}
+	pr.Head.SHA = "sha123"
+
+	client := &mockGitHubClient{
+		prs: map[string]*github.PullRequest{
+			"owner/repo/1": pr,
+		},
+		statuses: map[string]*github.CombinedStatus{
+			"sha123": {State: "success", SHA: "sha123"},
+		},
+	}
+
+	cfg := &config.Config{
+		NotificationFilter: config.NotificationFilterSuccess,
+		WatchedPRs: []config.WatchedPR{
+			{
+				Owner:          "owner",
+				Repo:           "repo",
+				Number:         1,
+				LastKnownState: "pending",
+			},
+		},
+	}
+
+	notifier := &mockNotifier{}
+	w := New(client, cfg, notifier)
+
+	if err := w.checkPR(&cfg.WatchedPRs[0]); err != nil {
+		t.Fatalf("checkPR failed: %v", err)
+	}
+
+	if len(notifier.events) != 1 {
+		t.Fatalf("expected a notification when filter is success and state becomes success")
+	}
+}

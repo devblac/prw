@@ -5,7 +5,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
+)
+
+const (
+	NotificationFilterChange  = "change"
+	NotificationFilterFail    = "fail"
+	NotificationFilterSuccess = "success"
 )
 
 // Config represents the application configuration and state.
@@ -14,6 +21,7 @@ type Config struct {
 	PollIntervalSeconds int    `json:"poll_interval_seconds"`
 	WebhookURL          string `json:"webhook_url,omitempty"`
 	GitHubToken         string `json:"github_token,omitempty"`
+	NotificationFilter  string `json:"notification_filter,omitempty"`
 
 	// Watched PRs
 	WatchedPRs []WatchedPR `json:"watched_prs"`
@@ -34,6 +42,7 @@ type WatchedPR struct {
 func DefaultConfig() *Config {
 	return &Config{
 		PollIntervalSeconds: 20,
+		NotificationFilter:  NotificationFilterChange,
 		WatchedPRs:          []WatchedPR{},
 	}
 }
@@ -75,6 +84,7 @@ func Load() (*Config, error) {
 	if cfg.WatchedPRs == nil {
 		cfg.WatchedPRs = []WatchedPR{}
 	}
+	cfg.NotificationFilter = normalizeNotificationFilter(cfg.NotificationFilter)
 
 	return &cfg, nil
 }
@@ -143,4 +153,26 @@ func (c *Config) GetToken() string {
 		return c.GitHubToken
 	}
 	return os.Getenv("GITHUB_TOKEN")
+}
+
+// normalizeNotificationFilter applies defaults and validation for the notification filter.
+func normalizeNotificationFilter(value string) string {
+	filter := strings.ToLower(strings.TrimSpace(value))
+	switch filter {
+	case NotificationFilterFail, NotificationFilterSuccess, NotificationFilterChange:
+		return filter
+	default:
+		return NotificationFilterChange
+	}
+}
+
+// IsValidNotificationFilter reports whether the provided filter is allowed.
+func IsValidNotificationFilter(value string) bool {
+	filter := strings.ToLower(strings.TrimSpace(value))
+	return filter == NotificationFilterFail || filter == NotificationFilterSuccess || filter == NotificationFilterChange
+}
+
+// NormalizeNotificationFilter sanitizes user input and applies defaults.
+func NormalizeNotificationFilter(value string) string {
+	return normalizeNotificationFilter(value)
 }
