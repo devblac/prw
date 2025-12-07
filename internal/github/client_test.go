@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 // mockRoundTripper implements http.RoundTripper for testing.
@@ -278,4 +279,42 @@ type mockRoundTripperFunc struct {
 
 func (m *mockRoundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return m.fn(req)
+}
+
+func TestNewClient(t *testing.T) {
+	client := NewClient("test-token")
+
+	if client.BaseURL != "https://api.github.com" {
+		t.Errorf("expected BaseURL 'https://api.github.com', got %q", client.BaseURL)
+	}
+
+	if client.Token != "test-token" {
+		t.Errorf("expected Token 'test-token', got %q", client.Token)
+	}
+
+	if client.HTTPClient == nil {
+		t.Fatal("expected HTTPClient to be initialized")
+	}
+
+	expectedTimeout := 15 * time.Second
+	if client.HTTPClient.Timeout != expectedTimeout {
+		t.Errorf("expected HTTP client timeout %v, got %v", expectedTimeout, client.HTTPClient.Timeout)
+	}
+}
+
+func TestNewClientWithTimeout(t *testing.T) {
+	client := NewClient("test-token")
+
+	// Verify the client has a timeout set to prevent hanging requests
+	if client.HTTPClient.Timeout == 0 {
+		t.Error("HTTP client should have a timeout set to prevent indefinite hangs")
+	}
+
+	if client.HTTPClient.Timeout < 5*time.Second {
+		t.Errorf("timeout %v seems too short for API requests", client.HTTPClient.Timeout)
+	}
+
+	if client.HTTPClient.Timeout > 30*time.Second {
+		t.Errorf("timeout %v seems unnecessarily long", client.HTTPClient.Timeout)
+	}
 }

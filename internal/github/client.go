@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Client is a simple GitHub API client.
@@ -18,12 +19,14 @@ type Client struct {
 	HTTPClient *http.Client
 }
 
-// NewClient creates a new GitHub client.
+// NewClient creates a new GitHub client with a 15-second timeout.
 func NewClient(token string) *Client {
 	return &Client{
-		BaseURL:    "https://api.github.com",
-		Token:      token,
-		HTTPClient: http.DefaultClient,
+		BaseURL: "https://api.github.com",
+		Token:   token,
+		HTTPClient: &http.Client{
+			Timeout: 15 * time.Second,
+		},
 	}
 }
 
