@@ -301,6 +301,52 @@ func TestWatcherRunContext(t *testing.T) {
 	}
 }
 
+func TestWatcherRunOnce(t *testing.T) {
+	pr := &github.PullRequest{
+		Number: 1,
+		Title:  "Test PR",
+	}
+	pr.Head.SHA = "sha123"
+
+	client := &mockGitHubClient{
+		prs: map[string]*github.PullRequest{
+			"owner/repo/1": pr,
+		},
+		statuses: map[string]*github.CombinedStatus{
+			"sha123": {State: "failure", SHA: "sha123"},
+		},
+	}
+
+	cfg := &config.Config{
+		PollIntervalSeconds: 1,
+		WatchedPRs: []config.WatchedPR{
+			{
+				Owner:          "owner",
+				Repo:           "repo",
+				Number:         1,
+				LastKnownState: "pending",
+			},
+		},
+	}
+
+	notifier := &mockNotifier{}
+	w := New(client, cfg, notifier)
+
+	ctx := context.Background()
+	if err := w.RunOnce(ctx); err != nil {
+		t.Fatalf("RunOnce failed: %v", err)
+	}
+
+	if len(notifier.events) != 1 {
+		t.Fatalf("expected one notification, got %d", len(notifier.events))
+	}
+
+	// State should be updated
+	if cfg.WatchedPRs[0].LastKnownState != "failure" {
+		t.Errorf("expected updated state to failure, got %s", cfg.WatchedPRs[0].LastKnownState)
+	}
+}
+
 func TestWatcherUpdateTitle(t *testing.T) {
 	pr := &github.PullRequest{
 		Number: 1,
@@ -552,5 +598,53 @@ func TestWatcherNotificationFilterSuccessOnly(t *testing.T) {
 
 	if len(notifier.events) != 1 {
 		t.Fatalf("expected a notification when filter is success and state becomes success")
+	}
+}
+
+func TestShouldNotify(t *testing.T) {
+	tests := []struct {
+		name         string
+		filter       string
+		currentState string
+		expected     bool
+	}{
+		{
+			name:         "fail filter with failure state",
+			filter:       config.NotificationFilterFail,
+			currentState: "failure",
+			expected:     true,
+		},
+		{
+			name:         "fail filter with success state",
+			filter:       config.NotificationFilterFail,
+			currentState: "success",
+			expected:     false,
+		},
+		{
+			name:         "success filter with success state",
+			filter:       config.NotificationFilterSuccess,
+			currentState: "success",
+			expected:     true,
+		},
+		{
+			name:         "change filter always true",
+			filter:       config.NotificationFilterChange,
+			currentState: "pending",
+			expected:     true,
+		},
+		{
+			name:         "invalid filter defaults to change",
+			filter:       "invalid",
+			currentState: "pending",
+			expected:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldNotify(tt.filter, tt.currentState); got != tt.expected {
+				t.Errorf("shouldNotify(%q, %q) = %v, want %v", tt.filter, tt.currentState, got, tt.expected)
+			}
+		})
 	}
 }

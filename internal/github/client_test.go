@@ -1,6 +1,7 @@
 package github
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -316,5 +317,233 @@ func TestNewClientWithTimeout(t *testing.T) {
 
 	if client.HTTPClient.Timeout > 30*time.Second {
 		t.Errorf("timeout %v seems unnecessarily long", client.HTTPClient.Timeout)
+	}
+}
+
+func TestGetPullRequest_NetworkError(t *testing.T) {
+	client := &Client{
+		BaseURL: "https://api.github.com",
+		Token:   "test-token",
+		HTTPClient: &http.Client{
+			Transport: &mockRoundTripperFunc{
+				fn: func(req *http.Request) (*http.Response, error) {
+					return nil, fmt.Errorf("network error")
+				},
+			},
+		},
+	}
+
+	_, err := client.GetPullRequest("owner", "repo", 123)
+	if err == nil {
+		t.Error("expected error for network failure, got nil")
+	}
+	if !strings.Contains(err.Error(), "request failed") {
+		t.Errorf("error should mention request failed: %v", err)
+	}
+}
+
+func TestGetCombinedStatus_NetworkError(t *testing.T) {
+	client := &Client{
+		BaseURL: "https://api.github.com",
+		Token:   "test-token",
+		HTTPClient: &http.Client{
+			Transport: &mockRoundTripperFunc{
+				fn: func(req *http.Request) (*http.Response, error) {
+					return nil, fmt.Errorf("network error")
+				},
+			},
+		},
+	}
+
+	_, err := client.GetCombinedStatus("owner", "repo", "abc123")
+	if err == nil {
+		t.Error("expected error for network failure, got nil")
+	}
+	if !strings.Contains(err.Error(), "request failed") {
+		t.Errorf("error should mention request failed: %v", err)
+	}
+}
+
+func TestGetPullRequest_InvalidJSON(t *testing.T) {
+	client := &Client{
+		BaseURL: "https://api.github.com",
+		Token:   "test-token",
+		HTTPClient: &http.Client{
+			Transport: &mockRoundTripperFunc{
+				fn: func(req *http.Request) (*http.Response, error) {
+					return &http.Response{
+						StatusCode: http.StatusOK,
+						Body:       io.NopCloser(strings.NewReader("invalid json {")),
+						Header:     make(http.Header),
+					}, nil
+				},
+			},
+		},
+	}
+
+	_, err := client.GetPullRequest("owner", "repo", 123)
+	if err == nil {
+		t.Error("expected error for invalid JSON, got nil")
+	}
+	if !strings.Contains(err.Error(), "failed to decode") {
+		t.Errorf("error should mention decode failure: %v", err)
+	}
+}
+
+func TestGetCombinedStatus_InvalidJSON(t *testing.T) {
+	client := &Client{
+		BaseURL: "https://api.github.com",
+		Token:   "test-token",
+		HTTPClient: &http.Client{
+			Transport: &mockRoundTripperFunc{
+				fn: func(req *http.Request) (*http.Response, error) {
+					return &http.Response{
+						StatusCode: http.StatusOK,
+						Body:       io.NopCloser(strings.NewReader("invalid json {")),
+						Header:     make(http.Header),
+					}, nil
+				},
+			},
+		},
+	}
+
+	_, err := client.GetCombinedStatus("owner", "repo", "abc123")
+	if err == nil {
+		t.Error("expected error for invalid JSON, got nil")
+	}
+	if !strings.Contains(err.Error(), "failed to decode") {
+		t.Errorf("error should mention decode failure: %v", err)
+	}
+}
+
+func TestGetPullRequest_ErrorResponse(t *testing.T) {
+	client := &Client{
+		BaseURL: "https://api.github.com",
+		Token:   "test-token",
+		HTTPClient: &http.Client{
+			Transport: &mockRoundTripperFunc{
+				fn: func(req *http.Request) (*http.Response, error) {
+					return &http.Response{
+						StatusCode: http.StatusForbidden,
+						Body:       io.NopCloser(strings.NewReader(`{"message": "Forbidden"}`)),
+						Header:     make(http.Header),
+					}, nil
+				},
+			},
+		},
+	}
+
+	_, err := client.GetPullRequest("owner", "repo", 123)
+	if err == nil {
+		t.Error("expected error for 403 response, got nil")
+	}
+	if !strings.Contains(err.Error(), "403") {
+		t.Errorf("error should mention status code: %v", err)
+	}
+}
+
+func TestGetCombinedStatus_ErrorResponse(t *testing.T) {
+	client := &Client{
+		BaseURL: "https://api.github.com",
+		Token:   "test-token",
+		HTTPClient: &http.Client{
+			Transport: &mockRoundTripperFunc{
+				fn: func(req *http.Request) (*http.Response, error) {
+					return &http.Response{
+						StatusCode: http.StatusNotFound,
+						Body:       io.NopCloser(strings.NewReader(`{"message": "Not Found"}`)),
+						Header:     make(http.Header),
+					}, nil
+				},
+			},
+		},
+	}
+
+	_, err := client.GetCombinedStatus("owner", "repo", "abc123")
+	if err == nil {
+		t.Error("expected error for 404 response, got nil")
+	}
+	if !strings.Contains(err.Error(), "404") {
+		t.Errorf("error should mention status code: %v", err)
+	}
+}
+
+func TestParsePRURL_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name    string
+		url     string
+		wantErr bool
+	}{
+		{
+			name:    "URL with query params",
+			url:     "https://github.com/owner/repo/pull/123?tab=files",
+			wantErr: false,
+		},
+		{
+			name:    "URL with fragment",
+			url:     "https://github.com/owner/repo/pull/123#discussion",
+			wantErr: false,
+		},
+		{
+			name:    "URL with trailing slash",
+			url:     "https://github.com/owner/repo/pull/123/",
+			wantErr: false,
+		},
+		{
+			name:    "invalid number",
+			url:     "https://github.com/owner/repo/pull/abc",
+			wantErr: true,
+		},
+		{
+			name:    "empty owner",
+			url:     "https://github.com//repo/pull/123",
+			wantErr: true,
+		},
+		{
+			name:    "empty repo",
+			url:     "https://github.com/owner//pull/123",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, _, err := ParsePRURL(tt.url)
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error, got nil")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestGetCombinedStatus_EmptyState(t *testing.T) {
+	client := &Client{
+		BaseURL: "https://api.github.com",
+		Token:   "test-token",
+		HTTPClient: &http.Client{
+			Transport: &mockRoundTripperFunc{
+				fn: func(req *http.Request) (*http.Response, error) {
+					return &http.Response{
+						StatusCode: http.StatusOK,
+						Body:       io.NopCloser(strings.NewReader(`{"state": "", "sha": "abc123"}`)),
+						Header:     make(http.Header),
+					}, nil
+				},
+			},
+		},
+	}
+
+	status, err := client.GetCombinedStatus("owner", "repo", "abc123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if status.State != "" {
+		t.Errorf("expected empty state, got %q", status.State)
 	}
 }

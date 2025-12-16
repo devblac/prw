@@ -388,3 +388,152 @@ func TestNormalizeNotificationFilter(t *testing.T) {
 		}
 	}
 }
+
+func TestNormalizeNotificationFilterExported(t *testing.T) {
+	if got := NormalizeNotificationFilter("FAIL"); got != NotificationFilterFail {
+		t.Errorf("expected FAIL to normalize to %s, got %s", NotificationFilterFail, got)
+	}
+	if got := NormalizeNotificationFilter("unknown"); got != NotificationFilterChange {
+		t.Errorf("expected unknown to normalize to %s, got %s", NotificationFilterChange, got)
+	}
+}
+
+func TestSaveWriteError(t *testing.T) {
+	tmpDir := t.TempDir()
+	// Point ConfigPath to a directory path; writing to a directory should fail.
+	configPath := filepath.Join(tmpDir, "config_as_dir")
+	os.MkdirAll(configPath, 0755)
+
+	oldConfigPath := ConfigPath
+	defer func() { ConfigPath = oldConfigPath }()
+	ConfigPath = func() (string, error) {
+		return configPath, nil
+	}
+
+	cfg := DefaultConfig()
+	err := cfg.Save()
+	if err == nil {
+		t.Fatal("expected Save to fail when target path is a directory, got nil")
+	}
+}
+
+func TestLoadReadError(t *testing.T) {
+	tmpDir := t.TempDir()
+	// Use a directory path so os.ReadFile returns an error that is not IsNotExist.
+	configPath := filepath.Join(tmpDir, "config_dir")
+	os.MkdirAll(configPath, 0755)
+
+	oldConfigPath := ConfigPath
+	defer func() { ConfigPath = oldConfigPath }()
+	ConfigPath = func() (string, error) {
+		return configPath, nil
+	}
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected Load to fail when config path is a directory, got nil")
+	}
+}
+
+func TestIsValidNotificationFilter(t *testing.T) {
+	tests := []struct {
+		value    string
+		expected bool
+	}{
+		{"fail", true},
+		{"success", true},
+		{"change", true},
+		{"FAIL", true},   // case insensitive
+		{"SUCCESS", true}, // case insensitive
+		{"CHANGE", true},  // case insensitive
+		{"  fail  ", true}, // whitespace trimmed
+		{"", false},
+		{"unknown", false},
+		{"invalid", false},
+		{"fail ", true},   // trailing space
+		{" success", true}, // leading space
+	}
+
+	for _, tt := range tests {
+		result := IsValidNotificationFilter(tt.value)
+		if result != tt.expected {
+			t.Errorf("IsValidNotificationFilter(%q) = %v, expected %v", tt.value, result, tt.expected)
+		}
+	}
+}
+
+func TestLoadWithNilWatchedPRs(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".prw", "config.json")
+
+	oldConfigPath := ConfigPath
+	defer func() { ConfigPath = oldConfigPath }()
+	ConfigPath = func() (string, error) {
+		return configPath, nil
+	}
+
+	// Write config with null watched_prs
+	os.MkdirAll(filepath.Dir(configPath), 0755)
+	os.WriteFile(configPath, []byte(`{"poll_interval_seconds":20,"watched_prs":null}`), 0600)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+
+	// Should initialize to empty slice
+	if cfg.WatchedPRs == nil {
+		t.Error("expected WatchedPRs to be initialized to empty slice, got nil")
+	}
+	if len(cfg.WatchedPRs) != 0 {
+		t.Errorf("expected empty WatchedPRs, got %d items", len(cfg.WatchedPRs))
+	}
+}
+
+func TestUpdatePR_NonExistent(t *testing.T) {
+	cfg := &Config{
+		WatchedPRs: []WatchedPR{
+			{Owner: "owner1", Repo: "repo1", Number: 1},
+		},
+	}
+
+	// Update a PR that doesn't exist - should not panic or error
+	cfg.UpdatePR("owner2", "repo2", 2, "sha123", "success")
+
+	// Original PR should be unchanged
+	if len(cfg.WatchedPRs) != 1 {
+		t.Errorf("expected 1 PR, got %d", len(cfg.WatchedPRs))
+	}
+	if cfg.WatchedPRs[0].LastKnownState != "" {
+		t.Errorf("expected unchanged state, got %s", cfg.WatchedPRs[0].LastKnownState)
+	}
+}
+
+func TestRemovePR_LastItem(t *testing.T) {
+	cfg := &Config{
+		WatchedPRs: []WatchedPR{
+			{Owner: "owner", Repo: "repo", Number: 1},
+		},
+	}
+
+	if !cfg.RemovePR("owner", "repo", 1) {
+		t.Error("expected RemovePR to return true")
+	}
+	if len(cfg.WatchedPRs) != 0 {
+		t.Errorf("expected 0 PRs after removal, got %d", len(cfg.WatchedPRs))
+	}
+}
+
+func TestAddPR_EmptyList(t *testing.T) {
+	cfg := &Config{
+		WatchedPRs: []WatchedPR{},
+	}
+
+	pr := WatchedPR{Owner: "owner", Repo: "repo", Number: 1}
+	if !cfg.AddPR(pr) {
+		t.Error("expected AddPR to return true for empty list")
+	}
+	if len(cfg.WatchedPRs) != 1 {
+		t.Errorf("expected 1 PR, got %d", len(cfg.WatchedPRs))
+	}
+}
