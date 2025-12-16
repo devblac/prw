@@ -2,9 +2,8 @@ package version
 
 import "fmt"
 
-// These variables can be set at build time using ldflags.
 var (
-	Version = "0.2.0"
+	Version = "0.3.0"
 	Commit  = "unknown"
 )
 
