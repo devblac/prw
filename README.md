@@ -11,7 +11,7 @@ A lightweight CLI tool for monitoring GitHub pull request CI status changes. Sto
 ## Metrics
 
 - **CI Status**: All tests passing on `main` (see badge above)
-- **Test Coverage**: ~86% across core packages (`config`, `github`, `watcher`, `notify`, `version`)
+- **Test Coverage**: ~92% across packages (including CLI commands)
 - **Build**: Cross-platform binaries for Linux, macOS, and Windows via GitHub Releases
 
 ## What is this?
@@ -22,10 +22,18 @@ It runs entirely on your machine. No servers, no accounts, just a simple CLI tha
 
 The tool is deliberately minimal. It does one thing well: watch PRs and tell you when their status changes.
 
+## Why prw?
+
+- **Instant signal**: Stop polling GitHub tabs; get alerted when CI flips.
+- **One-command broadcast**: Share PR health to Slack/Discord without bots or servers.
+- **Local-first**: Runs on your machine; tokens stay local; minimal scopes.
+- **5-minute setup**: `go install` (or download release), set `GITHUB_TOKEN`, `prw watch`, `prw run`.
+
 ## Features
 
 - **Watch multiple PRs** from different repositories simultaneously
 - **Instant notifications** when CI status changes (pending, success, failure, error)
+- **Chat-ops broadcast**: one command to push current PR status to Slack/Discord (`prw broadcast`)
 - **Webhook support** for Slack, Discord, or custom integrations
 - **Terminal notifications** with clear, actionable output
 - **Configurable polling** interval to balance responsiveness and API usage
@@ -33,6 +41,20 @@ The tool is deliberately minimal. It does one thing well: watch PRs and tell you
 - **PR titles** shown alongside PR numbers in lists and notifications
 - **JSON output** for automation via `prw list --json`
 - **Zero dependencies** beyond your GitHub Personal Access Token
+
+### Killer feature: Chat-ops broadcast
+
+- Notify your team with a single command:
+  ```bash
+  prw broadcast --filter failing --webhook https://hooks.slack.com/services/...
+  ```
+- Supports filters: `all`, `changed`, `failing`
+- Dry-run mode to preview output without sending
+
+## Examples
+
+- `examples/config.example.json` — starter config with placeholders
+- `examples/env.example` — minimal env file for `GITHUB_TOKEN`
 
 ## Installation
 
@@ -81,7 +103,7 @@ To install to your Go bin directory:
 make install
 ```
 
-## Quickstart
+## Quickstart (5 minutes)
 
 ### 1. Set up your GitHub token
 
@@ -117,9 +139,31 @@ prw run
 
 `prw` will begin polling every 20 seconds (configurable) and print status changes to your terminal.
 
+Single check and exit:
+
+```bash
+prw run --once
+```
+
 Press `Ctrl+C` to stop.
 
-### 4. Manage your watch list
+### 4. Broadcast to Slack/Discord (killer feature)
+
+```bash
+prw broadcast --filter all --webhook https://hooks.slack.com/services/...
+```
+
+Use `--dry-run` to preview without sending. Use `--filter failing` to only send failing/error statuses.
+
+### Shell completion
+
+```bash
+prw completion bash         # or zsh|fish|powershell
+```
+
+Add the output to your shell profile for autocomplete.
+
+### 5. Manage your watch list
 
 List all watched PRs:
 
@@ -258,6 +302,17 @@ prw run --on change
 ```
 
 The same setting can be persisted via `prw config set notification_filter <value>`.
+
+## Troubleshooting
+
+- **missing GITHUB_TOKEN**: set via env var or `prw config set github_token <token>`.
+- **Webhook fails**: verify URL, check HTTP 2xx, try `prw broadcast --dry-run` first.
+- **Rate limits**: increase `poll_interval_seconds`.
+
+## Uninstall / cleanup
+
+- Remove binary: delete `prw` from your PATH (e.g., `/usr/local/bin/prw`).
+- Remove config/state: delete `~/.prw/` if you want a clean slate.
 
 ## Version Information
 

@@ -4,11 +4,21 @@ This guide will get you up and running with `prw` in under 5 minutes.
 
 ## Prerequisites
 
-- Go 1.22+ installed
+- Go 1.22+ installed (or download a prebuilt release)
 - A GitHub Personal Access Token with `repo` scope
 - Git (for cloning)
 
 ## Installation
+
+### Prebuilt (fastest)
+
+```bash
+curl -LO https://github.com/devblac/prw/releases/latest/download/prw_$(uname -s | tr '[:upper:]' '[:lower:]')_amd64.tar.gz
+tar -xzf prw_*_amd64.tar.gz
+chmod +x prw_*_amd64
+mv prw_*_amd64 /usr/local/bin/prw
+prw version
+```
 
 ### Build from source
 
@@ -17,10 +27,8 @@ This guide will get you up and running with `prw` in under 5 minutes.
 git clone https://github.com/devblac/prw.git
 cd prw
 
-# Build the binary
+# Build and install
 make build
-
-# Optionally install to $GOPATH/bin
 make install
 ```
 
@@ -55,7 +63,7 @@ $env:GITHUB_TOKEN="ghp_your_token_here"
 ./bin/prw config set github_token "ghp_your_token_here"
 ```
 
-## Basic Usage
+## Basic Usage (core loop)
 
 ### Watch a pull request
 
@@ -90,11 +98,44 @@ This starts polling GitHub every 20 seconds. When a PR's CI status changes, you'
 
 Press `Ctrl+C` to stop.
 
+One-time check and exit:
+
+```bash
+./bin/prw run --once
+```
+
 ### Stop watching a PR
 
 ```bash
 ./bin/prw unwatch https://github.com/owner/repo/pull/123
 ```
+
+## Killer Feature: Chat-ops broadcast
+
+Announce the current status of all watched PRs to Slack/Discord (or any webhook):
+
+```bash
+prw broadcast --filter all --webhook https://hooks.slack.com/services/...
+```
+
+- `--filter`: `all`, `changed`, or `failing`
+- `--dry-run`: preview without sending
+- Uses the webhook in config unless `--webhook` overrides it
+
+## Shell completion
+
+Generate completion scripts:
+
+```bash
+./bin/prw completion bash   # or zsh|fish|powershell
+```
+
+Add the output to your shell profile to enable autocomplete.
+
+## Examples
+
+- Sample config: `examples/config.example.json`
+- Sample env file: `examples/env.example`
 
 ## Advanced Configuration
 

@@ -1,0 +1,17 @@
+{
+  "poll_interval_seconds": 20,
+  "notification_filter": "change",
+  "webhook_url": "https://hooks.slack.com/services/YOUR/WEBHOOK/URL",
+  "github_token": "ghp_example_token_here",
+  "watched_prs": [
+    {
+      "owner": "owner",
+      "repo": "repo",
+      "number": 123,
+      "last_known_sha": "abc123",
+      "last_known_state": "pending",
+      "title": "Example PR"
+    }
+  ]
+}
+
