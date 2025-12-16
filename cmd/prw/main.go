@@ -43,15 +43,21 @@ func init() {
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(versionCmd)
+	rootCmd.AddCommand(completionCmd)
 
 	listCmd.Flags().BoolVar(&listJSON, "json", false, "output watched PRs as JSON")
 	runCmd.Flags().StringVar(&notifyFilter, "on", "", "notify on: change, fail, or success")
+	runCmd.Flags().BoolVar(&runOnce, "once", false, "check watched PRs once and exit")
 }
 
 var (
 	listJSON     bool
 	notifyFilter string
+	runOnce      bool
 )
+
+// newGitHubClient allows tests to inject a custom GitHub client.
+var newGitHubClient = github.NewClient
 
 var watchCmd = &cobra.Command{
 	Use:   "watch <PR_URL>",
@@ -76,7 +82,7 @@ var watchCmd = &cobra.Command{
 		}
 
 		// Try to fetch the PR to validate it exists and get title
-		client := github.NewClient(token)
+		client := newGitHubClient(token)
 		pr, err := client.GetPullRequest(owner, repo, number)
 		if err != nil {
 			return fmt.Errorf("failed to fetch PR: %w", err)
@@ -196,7 +202,7 @@ Press Ctrl+C to stop.`,
 			return fmt.Errorf("missing GITHUB_TOKEN; set it as an environment variable or configure it with 'prw config set github_token <token>'")
 		}
 
-		client := github.NewClient(token)
+		client := newGitHubClient(token)
 
 		// Build notifier chain
 		notifiers := []notify.Notifier{notify.NewConsoleNotifier()}
@@ -227,6 +233,10 @@ Press Ctrl+C to stop.`,
 			<-sigCh
 			cancel()
 		}()
+
+		if runOnce {
+			return w.RunOnce(ctx)
+		}
 
 		return w.Run(ctx)
 	},

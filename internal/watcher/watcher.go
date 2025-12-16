@@ -64,6 +64,17 @@ func (w *Watcher) Run(ctx context.Context) error {
 	}
 }
 
+// RunOnce checks all watched PRs a single time and returns.
+func (w *Watcher) RunOnce(ctx context.Context) error {
+	fmt.Printf("Running one-time check with %d second poll interval...\n", w.config.PollIntervalSeconds)
+	if len(w.config.WatchedPRs) == 0 {
+		fmt.Println("No PRs being watched. Add some with 'prw watch <PR_URL>'.")
+		return nil
+	}
+	w.checkAllPRs()
+	return nil
+}
+
 func (w *Watcher) checkAllPRs() {
 	for i := range w.config.WatchedPRs {
 		pr := &w.config.WatchedPRs[i]
