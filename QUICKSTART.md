@@ -146,6 +146,23 @@ Add the output to your shell profile to enable autocomplete.
 ./bin/prw config set poll_interval_seconds 30
 ```
 
+### Enable native OS notifications
+
+Get desktop notifications without hosting a webhook:
+
+```bash
+# Enable via flag
+./bin/prw run --notify-native
+
+# Or persist in config
+./bin/prw config set notification_native true
+```
+
+**Platform requirements:**
+- **macOS**: Uses `osascript` (built-in)
+- **Linux**: Requires `notify-send` (install via `libnotify-bin` package)
+- **Windows**: Uses PowerShell (built-in)
+
 ### Add a webhook
 
 Send notifications to Slack, Discord, or any HTTP endpoint:

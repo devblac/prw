@@ -22,6 +22,7 @@ type Config struct {
 	WebhookURL          string `json:"webhook_url,omitempty"`
 	GitHubToken         string `json:"github_token,omitempty"`
 	NotificationFilter  string `json:"notification_filter,omitempty"`
+	NotificationNative  bool   `json:"notification_native,omitempty"`
 
 	// Watched PRs
 	WatchedPRs []WatchedPR `json:"watched_prs"`

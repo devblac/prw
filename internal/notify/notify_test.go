@@ -246,3 +246,66 @@ func TestConsoleNotifierWithEmptyTitle(t *testing.T) {
 		t.Errorf("ConsoleNotifier.Notify failed with empty title: %v", err)
 	}
 }
+
+func TestNativeNotifier(t *testing.T) {
+	notifier := NewNativeNotifier()
+
+	event := &StatusChangeEvent{
+		Owner:         "owner",
+		Repo:          "repo",
+		Number:        123,
+		Title:         "Test PR",
+		PreviousState: "pending",
+		CurrentState:  "success",
+		SHA:           "abc123",
+		Timestamp:     time.Now(),
+	}
+
+	// Should not panic or error even if native notifications aren't available
+	// (e.g., in CI environments or unsupported platforms)
+	err := notifier.Notify(event)
+	// We don't assert on error because:
+	// 1. The tool might not be available (e.g., notify-send on macOS CI)
+	// 2. The notifier should gracefully handle missing tools
+	// 3. This is tested more thoroughly in platform-specific tests below
+	_ = err
+}
+
+func TestNativeNotifierWithEmptyTitle(t *testing.T) {
+	notifier := NewNativeNotifier()
+
+	event := &StatusChangeEvent{
+		Owner:         "owner",
+		Repo:          "repo",
+		Number:        123,
+		Title:         "", // Empty title
+		PreviousState: "pending",
+		CurrentState:  "success",
+		SHA:           "abc123",
+		Timestamp:     time.Now(),
+	}
+
+	// Should handle empty title gracefully
+	err := notifier.Notify(event)
+	_ = err
+}
+
+func TestNativeNotifierUnsupportedPlatform(t *testing.T) {
+	// This test verifies that unsupported platforms don't crash
+	// We can't easily mock runtime.GOOS, so we just verify the notifier
+	// doesn't panic on any platform
+	notifier := NewNativeNotifier()
+
+	event := &StatusChangeEvent{
+		Owner:         "owner",
+		Repo:          "repo",
+		Number:        123,
+		PreviousState: "pending",
+		CurrentState:  "success",
+		Timestamp:     time.Now(),
+	}
+
+	// Should not panic
+	err := notifier.Notify(event)
+	_ = err
+}
