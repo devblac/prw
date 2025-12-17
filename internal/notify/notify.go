@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os/exec"
+	"runtime"
 	"time"
 
 	"github.com/devblac/prw/internal/github"
@@ -141,4 +143,121 @@ func (w *WebhookNotifier) Notify(event *StatusChangeEvent) error {
 	}
 
 	return nil
+}
+
+// NativeNotifier sends notifications using OS-native notification systems.
+type NativeNotifier struct {
+	enabled bool
+}
+
+// NewNativeNotifier creates a native notifier.
+// It checks if the platform supports native notifications and if the required tools are available.
+func NewNativeNotifier() *NativeNotifier {
+	return &NativeNotifier{
+		enabled: isNativeNotificationSupported(),
+	}
+}
+
+// Notify sends a native system notification.
+func (n *NativeNotifier) Notify(event *StatusChangeEvent) error {
+	if !n.enabled {
+		// Silently skip if not supported - this is expected on unsupported platforms
+		return nil
+	}
+
+	title := fmt.Sprintf("PR Status Change: %s/%s#%d", event.Owner, event.Repo, event.Number)
+	message := fmt.Sprintf("%s → %s", event.PreviousState, event.CurrentState)
+	if event.Title != "" {
+		message = fmt.Sprintf("%s\n%s", event.Title, message)
+	}
+
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		// macOS: use osascript to display notification
+		script := fmt.Sprintf(`display notification "%s" with title "%s"`, escapeAppleScriptString(message), escapeAppleScriptString(title))
+		cmd = exec.Command("osascript", "-e", script)
+	case "linux":
+		// Linux: use notify-send (requires libnotify-bin)
+		cmd = exec.Command("notify-send", title, message)
+	case "windows":
+		// Windows: use PowerShell to show toast notification
+		// Escape XML entities and PowerShell special characters
+		titleEscaped := escapePowerShellXMLString(title)
+		messageEscaped := escapePowerShellXMLString(message)
+		psScript := fmt.Sprintf(`[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = Windows.UI.Notifications]::CreateToastNotifier("prw").Show([Windows.UI.Notifications.ToastNotification]::new([Windows.Data.Xml.Dom.XmlDocument]::new().LoadXml("<toast><visual><binding template=\"ToastText02\"><text id=\"1">%s</text><text id=\"2">%s</text></binding></visual></toast>")))`, titleEscaped, messageEscaped)
+		cmd = exec.Command("powershell", "-NoProfile", "-Command", psScript)
+	default:
+		// Unsupported platform - silently skip
+		return nil
+	}
+
+	if err := cmd.Run(); err != nil {
+		// Log but don't fail - native notifications are optional
+		return fmt.Errorf("native notification failed (tool may be missing): %w", err)
+	}
+
+	return nil
+}
+
+// isNativeNotificationSupported checks if native notifications are supported on this platform.
+func isNativeNotificationSupported() bool {
+	switch runtime.GOOS {
+	case "darwin":
+		// Check if osascript is available
+		_, err := exec.LookPath("osascript")
+		return err == nil
+	case "linux":
+		// Check if notify-send is available
+		_, err := exec.LookPath("notify-send")
+		return err == nil
+	case "windows":
+		// PowerShell should be available on Windows
+		_, err := exec.LookPath("powershell")
+		return err == nil
+	default:
+		return false
+	}
+}
+
+// escapeAppleScriptString escapes special characters for AppleScript strings.
+func escapeAppleScriptString(s string) string {
+	// Replace quotes and backslashes
+	result := ""
+	for _, r := range s {
+		switch r {
+		case '"':
+			result += `\"`
+		case '\\':
+			result += `\\`
+		case '\n':
+			result += `\n`
+		default:
+			result += string(r)
+		}
+	}
+	return result
+}
+
+// escapePowerShellXMLString escapes special characters for XML embedded in PowerShell strings.
+func escapePowerShellXMLString(s string) string {
+	// Escape XML entities for safe embedding in XML
+	result := ""
+	for _, r := range s {
+		switch r {
+		case '<':
+			result += "&lt;"
+		case '>':
+			result += "&gt;"
+		case '&':
+			result += "&amp;"
+		case '"':
+			result += "&quot;"
+		case '\'':
+			result += "&apos;"
+		default:
+			result += string(r)
+		}
+	}
+	return result
 }

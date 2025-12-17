@@ -48,12 +48,14 @@ func init() {
 	listCmd.Flags().BoolVar(&listJSON, "json", false, "output watched PRs as JSON")
 	runCmd.Flags().StringVar(&notifyFilter, "on", "", "notify on: change, fail, or success")
 	runCmd.Flags().BoolVar(&runOnce, "once", false, "check watched PRs once and exit")
+	runCmd.Flags().BoolVar(&notifyNative, "notify-native", false, "enable native OS notifications (macOS/Linux/Windows)")
 }
 
 var (
 	listJSON     bool
 	notifyFilter string
 	runOnce      bool
+	notifyNative bool
 )
 
 // newGitHubClient allows tests to inject a custom GitHub client.
@@ -209,6 +211,10 @@ Press Ctrl+C to stop.`,
 		if cfg.WebhookURL != "" {
 			notifiers = append(notifiers, notify.NewWebhookNotifier(cfg.WebhookURL))
 		}
+		// Add native notifications if enabled via flag or config
+		if notifyNative || cfg.NotificationNative {
+			notifiers = append(notifiers, notify.NewNativeNotifier())
+		}
 		notifier := notify.NewMultiNotifier(notifiers...)
 
 		filter := cfg.NotificationFilter
@@ -264,6 +270,7 @@ var configShowCmd = &cobra.Command{
 		fmt.Printf("poll_interval_seconds: %d\n", cfg.PollIntervalSeconds)
 		fmt.Printf("webhook_url: %s\n", cfg.WebhookURL)
 		fmt.Printf("notification_filter: %s\n", cfg.NotificationFilter)
+		fmt.Printf("notification_native: %v\n", cfg.NotificationNative)
 
 		tokenSource := "not set"
 		if cfg.GitHubToken != "" {
@@ -287,7 +294,8 @@ Supported keys:
   - poll_interval_seconds: polling interval in seconds (default: 20)
   - webhook_url: URL to POST notifications to
   - github_token: GitHub personal access token
-  - notification_filter: change, fail, or success`,
+  - notification_filter: change, fail, or success
+  - notification_native: enable native OS notifications (true/false)`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		key := args[0]
@@ -315,6 +323,12 @@ Supported keys:
 				return fmt.Errorf("notification_filter must be one of: change, fail, success")
 			}
 			cfg.NotificationFilter = filter
+		case "notification_native":
+			enabled, err := strconv.ParseBool(value)
+			if err != nil {
+				return fmt.Errorf("notification_native must be true or false")
+			}
+			cfg.NotificationNative = enabled
 		default:
 			return fmt.Errorf("unknown config key: %s", key)
 		}
@@ -349,6 +363,8 @@ var configUnsetCmd = &cobra.Command{
 			cfg.GitHubToken = ""
 		case "notification_filter":
 			cfg.NotificationFilter = config.NotificationFilterChange
+		case "notification_native":
+			cfg.NotificationNative = false
 		default:
 			return fmt.Errorf("unknown config key: %s", key)
 		}

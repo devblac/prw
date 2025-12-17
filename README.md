@@ -35,6 +35,7 @@ The tool is deliberately minimal. It does one thing well: watch PRs and tell you
 - **Instant notifications** when CI status changes (pending, success, failure, error)
 - **Chat-ops broadcast**: one command to push current PR status to Slack/Discord (`prw broadcast`)
 - **Webhook support** for Slack, Discord, or custom integrations
+- **Native OS notifications** via system toasts (macOS/Linux/Windows)
 - **Terminal notifications** with clear, actionable output
 - **Configurable polling** interval to balance responsiveness and API usage
 - **Persistent state** - remembers watched PRs between sessions
@@ -226,6 +227,7 @@ prw config set webhook_url https://hooks.slack.com/services/YOUR/WEBHOOK/URL
   "poll_interval_seconds": 20,
   "notification_filter": "change",
   "webhook_url": "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXX",
+  "notification_native": false,
   "github_token": "",
   "watched_prs": [
     {
@@ -245,6 +247,7 @@ prw config set webhook_url https://hooks.slack.com/services/YOUR/WEBHOOK/URL
 
 - **`poll_interval_seconds`**: How often to poll GitHub (default: 20)
 - **`webhook_url`**: Optional HTTP endpoint for notifications
+- **`notification_native`**: Enable native OS notifications (true/false, default: false)
 - **`github_token`**: GitHub Personal Access Token (prefer env var `GITHUB_TOKEN`)
 
 ## Notifications
@@ -261,6 +264,25 @@ Status changes are always printed to stdout with clear formatting:
    Link: https://github.com/kubernetes/kubernetes/pull/12345
    Time: 2025-12-06T10:32:15Z
 ```
+
+### Native OS Notifications
+
+Enable native system notifications for desktop alerts without hosting a webhook:
+
+```bash
+# Enable via flag
+prw run --notify-native
+
+# Or persist in config
+prw config set notification_native true
+```
+
+**Platform requirements:**
+- **macOS**: Uses `osascript` (built-in)
+- **Linux**: Requires `notify-send` (usually from `libnotify-bin` package)
+- **Windows**: Uses PowerShell (built-in)
+
+If the required tool is missing, `prw` will log a warning and continue polling without crashing. Native notifications work alongside console and webhook notifications—you can enable all three simultaneously.
 
 ### Webhooks
 
@@ -368,7 +390,6 @@ make clean
 These features might come in future versions:
 
 - **GitHub App integration** for webhook-based notifications (no polling)
-- **Desktop notifications** via OS-native APIs
 - **Multiple notification channels** (email, Telegram, etc.)
 - **Rich filtering** (watch only specific check suites, ignore draft PRs)
 - **PR review status** tracking (approvals, requested changes)
