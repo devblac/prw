@@ -412,3 +412,15 @@ MIT License - see [LICENSE](LICENSE) for details.
 ---
 
 **Questions or issues?** Open a GitHub issue or discussion. Pull requests welcome!
+
+---
+
+## Attribution
+
+The original idea behind this project was proposed by Mariano Gappa.
+
+This repository contains my own implementation and evolution of that idea.
+Any mistakes or design decisions in this codebase are mine.
+
+Original inspiration:
+https://github.com/marianogappa
