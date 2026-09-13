@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- CI status now aggregates GitHub Check Runs (GitHub Actions) together with legacy commit statuses. Previously, repositories using only GitHub Actions were reported as `pending` forever and never triggered notifications.
+
 ### Added
+- Failed check names and links are included in console notifications and in the webhook payload (`failed_checks`)
 - Cross-platform prebuilt binaries (Linux, macOS, Windows) via GitHub Releases
 - Automated release workflow for tagged versions
 - Issue and pull request templates

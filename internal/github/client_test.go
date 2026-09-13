@@ -547,3 +547,234 @@ func TestGetCombinedStatus_EmptyState(t *testing.T) {
 		t.Errorf("expected empty state, got %q", status.State)
 	}
 }
+
+func jsonResponse(statusCode int, body string) *http.Response {
+	return &http.Response{
+		StatusCode: statusCode,
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Header:     make(http.Header),
+	}
+}
+
+func TestGetCheckRuns_Paginates(t *testing.T) {
+	var requestedPages []string
+	client := &Client{
+		BaseURL: "https://api.github.com",
+		Token:   "test-token",
+		HTTPClient: &http.Client{
+			Transport: &mockRoundTripperFunc{
+				fn: func(req *http.Request) (*http.Response, error) {
+					if !strings.HasSuffix(req.URL.Path, "/repos/owner/repo/commits/abc123/check-runs") {
+						t.Errorf("unexpected path: %s", req.URL.Path)
+					}
+					page := req.URL.Query().Get("page")
+					requestedPages = append(requestedPages, page)
+
+					count := checkRunsPerPage
+					if page == "2" {
+						count = 1
+					}
+					runs := make([]string, 0, count)
+					for i := 0; i < count; i++ {
+						runs = append(runs, fmt.Sprintf(`{"name":"job-%s-%d","status":"completed","conclusion":"success"}`, page, i))
+					}
+					body := fmt.Sprintf(`{"total_count":%d,"check_runs":[%s]}`, checkRunsPerPage+1, strings.Join(runs, ","))
+					return jsonResponse(http.StatusOK, body), nil
+				},
+			},
+		},
+	}
+
+	runs, err := client.GetCheckRuns("owner", "repo", "abc123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(runs) != checkRunsPerPage+1 {
+		t.Errorf("expected %d runs, got %d", checkRunsPerPage+1, len(runs))
+	}
+	if len(requestedPages) != 2 {
+		t.Errorf("expected 2 page requests, got %v", requestedPages)
+	}
+}
+
+func TestGetCheckRuns_ForbiddenHint(t *testing.T) {
+	client := &Client{
+		BaseURL: "https://api.github.com",
+		Token:   "test-token",
+		HTTPClient: &http.Client{
+			Transport: &mockRoundTripperFunc{
+				fn: func(req *http.Request) (*http.Response, error) {
+					return jsonResponse(http.StatusForbidden, `{"message":"Resource not accessible by personal access token"}`), nil
+				},
+			},
+		},
+	}
+
+	_, err := client.GetCheckRuns("owner", "repo", "abc123")
+	if err == nil {
+		t.Fatal("expected error for 403 response, got nil")
+	}
+	if !strings.Contains(err.Error(), "403") || !strings.Contains(err.Error(), "Checks: read") {
+		t.Errorf("error should mention status code and required permission: %v", err)
+	}
+}
+
+func TestFetchCIStatus_ActionsOnlyRepo(t *testing.T) {
+	// Mirrors the real API for a repo that only uses GitHub Actions: the legacy
+	// status endpoint reports pending with zero statuses.
+	client := &Client{
+		BaseURL: "https://api.github.com",
+		Token:   "test-token",
+		HTTPClient: &http.Client{
+			Transport: &mockRoundTripperFunc{
+				fn: func(req *http.Request) (*http.Response, error) {
+					if strings.HasSuffix(req.URL.Path, "/status") {
+						return jsonResponse(http.StatusOK, `{"state":"pending","sha":"abc123","total_count":0,"statuses":[]}`), nil
+					}
+					return jsonResponse(http.StatusOK, `{"total_count":2,"check_runs":[
+						{"name":"Test","status":"completed","conclusion":"failure","html_url":"https://github.com/owner/repo/runs/1"},
+						{"name":"Build","status":"completed","conclusion":"success"}
+					]}`), nil
+				},
+			},
+		},
+	}
+
+	ci, err := FetchCIStatus(client, "owner", "repo", "abc123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ci.State != "failure" {
+		t.Errorf("expected failure, got %q", ci.State)
+	}
+	if len(ci.FailedChecks) != 1 || ci.FailedChecks[0].Name != "Test" || ci.FailedChecks[0].URL == "" {
+		t.Errorf("unexpected failed checks: %+v", ci.FailedChecks)
+	}
+}
+
+func TestFetchCIStatus_PropagatesErrors(t *testing.T) {
+	client := &Client{
+		BaseURL: "https://api.github.com",
+		Token:   "test-token",
+		HTTPClient: &http.Client{
+			Transport: &mockRoundTripperFunc{
+				fn: func(req *http.Request) (*http.Response, error) {
+					if strings.HasSuffix(req.URL.Path, "/status") {
+						return jsonResponse(http.StatusOK, `{"state":"success","total_count":1}`), nil
+					}
+					return jsonResponse(http.StatusInternalServerError, `{"message":"boom"}`), nil
+				},
+			},
+		},
+	}
+
+	_, err := FetchCIStatus(client, "owner", "repo", "abc123")
+	if err == nil || !strings.Contains(err.Error(), "check runs") {
+		t.Errorf("expected check runs error, got %v", err)
+	}
+}
+
+func TestSummarizeCI(t *testing.T) {
+	noStatuses := &CombinedStatus{State: "pending", TotalCount: 0}
+	completed := func(name, conclusion string) CheckRun {
+		return CheckRun{Name: name, Status: "completed", Conclusion: conclusion}
+	}
+
+	tests := []struct {
+		name       string
+		status     *CombinedStatus
+		runs       []CheckRun
+		wantState  string
+		wantFailed []string
+	}{
+		{name: "no CI at all", status: noStatuses, wantState: "pending"},
+		{name: "nil status and no runs", wantState: "pending"},
+		{
+			name:      "actions only, all green",
+			status:    noStatuses,
+			runs:      []CheckRun{completed("Test", "success"), completed("Build", "success")},
+			wantState: "success",
+		},
+		{
+			name:       "actions only, one failed",
+			status:     noStatuses,
+			runs:       []CheckRun{completed("Lint", "failure"), completed("Build", "success")},
+			wantState:  "failure",
+			wantFailed: []string{"Lint"},
+		},
+		{
+			name:      "actions still running",
+			status:    noStatuses,
+			runs:      []CheckRun{{Name: "Test", Status: "in_progress"}, completed("Build", "success")},
+			wantState: "pending",
+		},
+		{
+			name:       "failure wins over pending",
+			status:     noStatuses,
+			runs:       []CheckRun{{Name: "Test", Status: "queued"}, completed("Build", "timed_out")},
+			wantState:  "failure",
+			wantFailed: []string{"Build"},
+		},
+		{
+			name:       "cancelled counts as failure",
+			status:     noStatuses,
+			runs:       []CheckRun{completed("Deploy", "cancelled")},
+			wantState:  "failure",
+			wantFailed: []string{"Deploy"},
+		},
+		{
+			name:      "neutral and skipped count as passing",
+			status:    noStatuses,
+			runs:      []CheckRun{completed("Docs", "skipped"), completed("Optional", "neutral")},
+			wantState: "success",
+		},
+		{
+			name:      "legacy statuses only",
+			status:    &CombinedStatus{State: "success", TotalCount: 1},
+			wantState: "success",
+		},
+		{
+			name:      "legacy state without total_count",
+			status:    &CombinedStatus{State: "success"},
+			wantState: "success",
+		},
+		{
+			name: "legacy error with green check runs",
+			status: &CombinedStatus{State: "error", TotalCount: 1, Statuses: []CommitStatus{
+				{Context: "ci/jenkins", State: "error", TargetURL: "https://jenkins.example/1"},
+			}},
+			runs:       []CheckRun{completed("Build", "success")},
+			wantState:  "error",
+			wantFailed: []string{"ci/jenkins"},
+		},
+		{
+			name:       "legacy success with failed check run",
+			status:     &CombinedStatus{State: "success", TotalCount: 1},
+			runs:       []CheckRun{completed("Test", "failure")},
+			wantState:  "failure",
+			wantFailed: []string{"Test"},
+		},
+		{
+			name:      "legacy pending with statuses stays pending",
+			status:    &CombinedStatus{State: "pending", TotalCount: 1},
+			runs:      []CheckRun{completed("Build", "success")},
+			wantState: "pending",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ci := SummarizeCI(tt.status, tt.runs)
+			if ci.State != tt.wantState {
+				t.Errorf("state = %q, want %q", ci.State, tt.wantState)
+			}
+			var gotFailed []string
+			for _, fc := range ci.FailedChecks {
+				gotFailed = append(gotFailed, fc.Name)
+			}
+			if strings.Join(gotFailed, ",") != strings.Join(tt.wantFailed, ",") {
+				t.Errorf("failed checks = %v, want %v", gotFailed, tt.wantFailed)
+			}
+		})
+	}
+}

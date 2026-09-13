@@ -14,9 +14,17 @@ import (
 
 // mockGitHubClient implements GitHubClient for testing.
 type mockGitHubClient struct {
-	prs      map[string]*github.PullRequest
-	statuses map[string]*github.CombinedStatus
-	err      error
+	prs       map[string]*github.PullRequest
+	statuses  map[string]*github.CombinedStatus
+	checkRuns map[string][]github.CheckRun
+	err       error
+}
+
+func (m *mockGitHubClient) GetCheckRuns(owner, repo, ref string) ([]github.CheckRun, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.checkRuns[ref], nil
 }
 
 func (m *mockGitHubClient) GetPullRequest(owner, repo string, number int) (*github.PullRequest, error) {

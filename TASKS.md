@@ -34,52 +34,54 @@ This file tracks the project's development status and planned work. It's a livin
 - ✅ CHANGELOG maintenance
 - ✅ Issue and PR templates
 
+## Roadmap (prioritized by importance and ROI)
+
+Legend — Impact: 1–5 · Effort: S (≤½ day), M (1–2 days), L (3+ days) · ROI = impact relative to effort.
+
+### Phase 0 — Make the core promise work (blocking)
+
+| # | Task | Why | Impact | Effort | ROI |
+|---|------|-----|--------|--------|-----|
+| 1 | **Check Runs support** (GitHub Actions) — aggregate `/check-runs` + legacy `/status`, include failed check names in notifications | Actions-only repos report `pending` forever via `/status`; prw never notifies | 5 | S | ★★★★★ |
+| 2 | **Slack/Discord webhook formats** — detect by URL, send `text` / `content` payloads; keep raw JSON as `generic` | Slack/Discord reject the current payload with 400 | 5 | S | ★★★★★ |
+| 3 | **Fix Windows native toast + injection-safe escaping** (pass data via env vars, not string interpolation) | Current PowerShell script is syntactically broken; PR titles are attacker-controlled | 4 | S | ★★★★ |
+| 4 | **Reload config each tick / atomic writes** — `prw watch` while `prw run` is running must not be lost | Running watcher overwrites the file with stale in-memory state | 4 | S | ★★★★ |
+| 5 | **Auto-remove merged/closed PRs** (+ notify "merged") | Watch list grows forever, wastes API quota | 3 | S | ★★★★ |
+| 6 | **Robustness quick wins** — webhook HTTP timeout, `MultiNotifier` continues on error, fix README version URLs | Silent hangs / lost notifications | 3 | S | ★★★★ |
+| 7 | **Live integration smoke test** against a public repo (unauthenticated, CI nightly) | Mocked tests hid the Check Runs bug | 3 | S | ★★★ |
+
+### Phase 1 — Differentiate from `gh pr checks --watch`
+
+| # | Task | Why | Impact | Effort | ROI |
+|---|------|-----|--------|--------|-----|
+| 8 | **`gh` extension distribution** (`gh prw`, reuse `gh auth token`) | Zero-setup auth + discoverability in the gh extension catalog | 5 | M | ★★★★ |
+| 9 | **API efficiency** — ETag/conditional requests (304s are free), rate-limit awareness + backoff | Current design exceeds 5k req/h at ~14 PRs | 4 | M | ★★★ |
+| 10 | **Auto-watch "my open PRs"** (`prw watch --mine`, `--review-requested`) | Removes manual URL copy-paste — main friction | 4 | M | ★★★ |
+| 11 | **Review & mergeability events** — approved, changes requested, conflicts, ready-to-merge | Covers the full PR lifecycle, not just CI | 4 | M | ★★★ |
+| 12 | **`prw checks <PR>`** — table of individual check runs with links | Actionable debugging view | 3 | S | ★★★ |
+
+### Phase 2 — AI-agent angle and team features
+
+| # | Task | Why | Impact | Effort | ROI |
+|---|------|-----|--------|--------|-----|
+| 13 | **`prw wait <PR>`** — block until CI settles, exit code 0/1, print failed checks (+ `--json`) | Scriptable; ideal for coding agents and pipelines | 4 | S | ★★★★ |
+| 14 | **MCP server** (`prw mcp`: `wait_for_ci`, `get_failed_checks`, `list_watched`) | Agents opening PRs need to wait on CI and read failures | 4 | M | ★★★ |
+| 15 | **Failed job log excerpt** (Actions job logs tail) | Agents/devs fix without opening the browser | 3 | M | ★★ |
+| 16 | Flakiness detection + status history | Team value, depends on #1 | 3 | L | ★★ |
+| 17 | Homebrew/Scoop packaging, secure token storage (OS keychain) | Adoption & security polish | 2 | M | ★★ |
+
+### Deprioritized (low ROI for now)
+
+- TUI dashboard (`prw ui`), notification plugin system, Prometheus metrics, config format choice, GitHub App/webhook mode.
+
 ## In Progress
 
-No active items.
+- ✅ #1 Check Runs support — done (verified live against `devblac/prw`: legacy `pending`/0 statuses + 2 check runs → `success`)
+- Next: #2 Slack/Discord webhook formats
 
 ## Planned
 
-### Near-term improvements
-
-- GitHub App integration for webhook-based notifications (eliminates polling)
-- Desktop notifications using OS-native APIs (macOS, Linux, Windows)
-- Retry logic with exponential backoff for transient API errors
-- Better error messages when GitHub token lacks required permissions
-- Local HTTP server mode (`prw serve`)
-- TUI dashboard (`prw ui`)
-- Notification plugin system
-- Flakiness detection and handling
-- Mergeability checks/rules
-
-### Feature additions
-
-- Watch specific check suites or workflow runs instead of combined status
-- Filter PRs by state (ignore drafts, only watch open PRs, etc.)
-- Track PR review status (approvals, requested changes)
-- Support for GitHub Enterprise Server installations
-- Multiple notification channels (email via SMTP, Telegram, etc.)
-
-### Developer experience
-
-- Interactive TUI mode for managing watches without separate commands
-- Shell completions (bash, zsh, fish)
-- Homebrew formula for easier installation
-
-### Quality and observability
-
-- Structured logging with levels (debug, info, warn, error)
-- Metrics export (Prometheus format?) for watch duration and API calls
-- Integration tests that use GitHub's API (requires test fixtures or VCR)
-- Performance profiling for high PR counts
-
-### Nice-to-haves
-
-- Config file format choice (JSON, YAML, TOML)
-- Encrypted token storage in config file
-- Watch entire repositories (all PRs matching a filter)
-- Historical status tracking (see when a PR became green)
-- Export watch list to shareable format
+See the roadmap above.
 
 ## Won't Do (For Now)
 
@@ -100,4 +102,4 @@ These are explicitly out of scope for the initial version:
 - Prioritize reliability and usability over feature count
 - Community feedback will shape the roadmap
 
-Last updated: 2025-12-07
+Last updated: 2026-09-13

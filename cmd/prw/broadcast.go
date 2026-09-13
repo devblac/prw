@@ -76,13 +76,13 @@ var broadcastCmd = &cobra.Command{
 				continue
 			}
 
-			status, err := client.GetCombinedStatus(pr.Owner, pr.Repo, ghPR.Head.SHA)
+			ci, err := github.FetchCIStatus(client, pr.Owner, pr.Repo, ghPR.Head.SHA)
 			if err != nil {
 				fmt.Printf("Error fetching status for %s/%s#%d: %v\n", pr.Owner, pr.Repo, pr.Number, err)
 				continue
 			}
 
-			currentState := github.NormalizeState(status.State)
+			currentState := ci.State
 			previousState := github.NormalizeState(pr.LastKnownState)
 			changed := previousState != "" && previousState != currentState
 
@@ -117,6 +117,7 @@ var broadcastCmd = &cobra.Command{
 				PreviousState: previousState,
 				CurrentState:  currentState,
 				SHA:           ghPR.Head.SHA,
+				FailedChecks:  ci.FailedChecks,
 				Timestamp:     time.Now(),
 			}
 
