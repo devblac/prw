@@ -97,13 +97,22 @@ var watchCmd = &cobra.Command{
 			Title:  pr.Title,
 		}
 
-		if !cfg.AddPR(watchedPR) {
-			fmt.Printf("PR %s/%s#%d is already being watched.\n", owner, repo, number)
+		// Re-read the config under a lock instead of saving the copy loaded before the
+		// network call: a running `prw run` may have updated the file in the meantime.
+		added := false
+		if err := config.Update(func(c *config.Config) error {
+			added = c.AddPR(watchedPR)
+			if !added {
+				return config.ErrNoChanges
+			}
 			return nil
+		}); err != nil {
+			return fmt.Errorf("failed to save config: %w", err)
 		}
 
-		if err := cfg.Save(); err != nil {
-			return fmt.Errorf("failed to save config: %w", err)
+		if !added {
+			fmt.Printf("PR %s/%s#%d is already being watched.\n", owner, repo, number)
+			return nil
 		}
 
 		fmt.Printf("Now watching: %s/%s#%d - %s\n", owner, repo, number, pr.Title)
@@ -168,18 +177,20 @@ var unwatchCmd = &cobra.Command{
 			return fmt.Errorf("invalid PR URL: %w", err)
 		}
 
-		cfg, err := config.Load()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
+		removed := false
+		if err := config.Update(func(c *config.Config) error {
+			removed = c.RemovePR(owner, repo, number)
+			if !removed {
+				return config.ErrNoChanges
+			}
+			return nil
+		}); err != nil {
+			return fmt.Errorf("failed to update config: %w", err)
 		}
 
-		if !cfg.RemovePR(owner, repo, number) {
+		if !removed {
 			fmt.Printf("PR %s/%s#%d is not being watched.\n", owner, repo, number)
 			return nil
-		}
-
-		if err := cfg.Save(); err != nil {
-			return fmt.Errorf("failed to save config: %w", err)
 		}
 
 		fmt.Printf("Stopped watching: %s/%s#%d\n", owner, repo, number)
@@ -303,51 +314,51 @@ Supported keys:
 		key := args[0]
 		value := args[1]
 
-		cfg, err := config.Load()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
-
-		switch key {
-		case "poll_interval_seconds":
-			interval, err := strconv.Atoi(value)
-			if err != nil || interval <= 0 {
-				return fmt.Errorf("poll_interval_seconds must be a positive integer")
-			}
-			cfg.PollIntervalSeconds = interval
-		case "webhook_url":
-			cfg.WebhookURL = value
-		case "webhook_format":
-			format := notify.NormalizeWebhookFormat(value)
-			if !notify.IsValidWebhookFormat(format) {
-				return fmt.Errorf("webhook_format must be one of: auto, slack, discord, generic")
-			}
-			cfg.WebhookFormat = format
-		case "github_token":
-			cfg.GitHubToken = value
-		case "notification_filter":
-			filter := config.NormalizeNotificationFilter(value)
-			if !config.IsValidNotificationFilter(filter) {
-				return fmt.Errorf("notification_filter must be one of: change, fail, success")
-			}
-			cfg.NotificationFilter = filter
-		case "notification_native":
-			enabled, err := strconv.ParseBool(value)
-			if err != nil {
-				return fmt.Errorf("notification_native must be true or false")
-			}
-			cfg.NotificationNative = enabled
-		default:
-			return fmt.Errorf("unknown config key: %s", key)
-		}
-
-		if err := cfg.Save(); err != nil {
-			return fmt.Errorf("failed to save config: %w", err)
+		if err := config.Update(func(cfg *config.Config) error {
+			return applyConfigSet(cfg, key, value)
+		}); err != nil {
+			return err
 		}
 
 		fmt.Printf("Set %s = %s\n", key, value)
 		return nil
 	},
+}
+
+func applyConfigSet(cfg *config.Config, key, value string) error {
+	switch key {
+	case "poll_interval_seconds":
+		interval, err := strconv.Atoi(value)
+		if err != nil || interval <= 0 {
+			return fmt.Errorf("poll_interval_seconds must be a positive integer")
+		}
+		cfg.PollIntervalSeconds = interval
+	case "webhook_url":
+		cfg.WebhookURL = value
+	case "webhook_format":
+		format := notify.NormalizeWebhookFormat(value)
+		if !notify.IsValidWebhookFormat(format) {
+			return fmt.Errorf("webhook_format must be one of: auto, slack, discord, generic")
+		}
+		cfg.WebhookFormat = format
+	case "github_token":
+		cfg.GitHubToken = value
+	case "notification_filter":
+		filter := config.NormalizeNotificationFilter(value)
+		if !config.IsValidNotificationFilter(filter) {
+			return fmt.Errorf("notification_filter must be one of: change, fail, success")
+		}
+		cfg.NotificationFilter = filter
+	case "notification_native":
+		enabled, err := strconv.ParseBool(value)
+		if err != nil {
+			return fmt.Errorf("notification_native must be true or false")
+		}
+		cfg.NotificationNative = enabled
+	default:
+		return fmt.Errorf("unknown config key: %s", key)
+	}
+	return nil
 }
 
 var configUnsetCmd = &cobra.Command{
@@ -357,35 +368,35 @@ var configUnsetCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		key := args[0]
 
-		cfg, err := config.Load()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
-
-		switch key {
-		case "poll_interval_seconds":
-			cfg.PollIntervalSeconds = 20 // reset to default
-		case "webhook_url":
-			cfg.WebhookURL = ""
-		case "webhook_format":
-			cfg.WebhookFormat = ""
-		case "github_token":
-			cfg.GitHubToken = ""
-		case "notification_filter":
-			cfg.NotificationFilter = config.NotificationFilterChange
-		case "notification_native":
-			cfg.NotificationNative = false
-		default:
-			return fmt.Errorf("unknown config key: %s", key)
-		}
-
-		if err := cfg.Save(); err != nil {
-			return fmt.Errorf("failed to save config: %w", err)
+		if err := config.Update(func(cfg *config.Config) error {
+			return applyConfigUnset(cfg, key)
+		}); err != nil {
+			return err
 		}
 
 		fmt.Printf("Unset %s\n", key)
 		return nil
 	},
+}
+
+func applyConfigUnset(cfg *config.Config, key string) error {
+	switch key {
+	case "poll_interval_seconds":
+		cfg.PollIntervalSeconds = 20 // reset to default
+	case "webhook_url":
+		cfg.WebhookURL = ""
+	case "webhook_format":
+		cfg.WebhookFormat = ""
+	case "github_token":
+		cfg.GitHubToken = ""
+	case "notification_filter":
+		cfg.NotificationFilter = config.NotificationFilterChange
+	case "notification_native":
+		cfg.NotificationNative = false
+	default:
+		return fmt.Errorf("unknown config key: %s", key)
+	}
+	return nil
 }
 
 var versionCmd = &cobra.Command{

@@ -79,7 +79,8 @@ Legend — Impact: 1–5 · Effort: S (≤½ day), M (1–2 days), L (3+ days) �
 - ✅ #1 Check Runs support — done (verified live against `devblac/prw`: legacy `pending`/0 statuses + 2 check runs → `success`)
 - ✅ #2 Slack/Discord webhook formats — done (`webhook_format` config, auto-detected from URL; also covers the webhook timeout part of #6)
 - ✅ #3 Windows toast + injection-safe escaping — done (verified on Windows: old script fails to parse; new script runs and a hostile title executes nothing)
-- Next: #4 Reload config each tick / atomic writes
+- ✅ #4 Reload config each tick / atomic writes — done (locked read-modify-write via `config.Update`; watcher persists only PR state; test suite no longer clobbers the real config)
+- Next: #5 Auto-remove merged/closed PRs
 
 ## Planned
 

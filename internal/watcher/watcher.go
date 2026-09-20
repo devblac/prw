@@ -60,9 +60,24 @@ func (w *Watcher) Run(ctx context.Context) error {
 			fmt.Println("\nWatcher stopped.")
 			return ctx.Err()
 		case <-ticker.C:
+			w.reloadWatchedPRs()
 			w.checkAllPRs()
 		}
 	}
+}
+
+// reloadWatchedPRs re-reads the watch list from disk so PRs added with `prw watch` or
+// removed with `prw unwatch` while the watcher is running take effect on the next poll.
+func (w *Watcher) reloadWatchedPRs() {
+	fresh, err := config.Load()
+	if err != nil {
+		fmt.Printf("Warning: failed to reload config: %v\n", err)
+		return
+	}
+	if len(fresh.WatchedPRs) != len(w.config.WatchedPRs) {
+		fmt.Printf("Watch list changed: now watching %d PR(s).\n", len(fresh.WatchedPRs))
+	}
+	w.config.WatchedPRs = fresh.WatchedPRs
 }
 
 // RunOnce checks all watched PRs a single time and returns.
@@ -84,8 +99,10 @@ func (w *Watcher) checkAllPRs() {
 		}
 	}
 
-	// Save config after checking all PRs
-	if err := w.config.Save(); err != nil {
+	// Persist only the polling state. Saving the whole in-memory config would erase
+	// PRs added (or resurrect PRs removed) by other commands since the last reload,
+	// and would write run-only overrides such as --on into the config file.
+	if err := config.SavePRStates(w.config.WatchedPRs); err != nil {
 		fmt.Printf("Warning: failed to save config: %v\n", err)
 	}
 }
