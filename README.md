@@ -249,6 +249,7 @@ prw config set webhook_url https://hooks.slack.com/services/YOUR/WEBHOOK/URL
 
 - **`poll_interval_seconds`**: How often to poll GitHub (default: 20)
 - **`webhook_url`**: Optional HTTP endpoint for notifications
+- **`webhook_format`**: Payload format: `auto` (default, detected from the URL), `slack`, `discord`, or `generic`
 - **`notification_native`**: Enable native OS notifications (true/false, default: false)
 - **`github_token`**: GitHub Personal Access Token (prefer env var `GITHUB_TOKEN`)
 
@@ -288,7 +289,17 @@ If the required tool is missing, `prw` will log a warning and continue polling w
 
 ### Webhooks
 
-If you configure a `webhook_url`, `prw` will POST a JSON payload on every status change:
+If you configure a `webhook_url`, `prw` will POST to it on every status change. The payload shape is chosen from the URL:
+
+| URL | Format | What you get |
+|-----|--------|--------------|
+| `https://hooks.slack.com/...` | `slack` | A message with the PR link, status transition and failed checks |
+| `https://discord.com/api/webhooks/...` | `discord` | A colored embed (green / red / yellow) with the same details |
+| anything else | `generic` | Raw JSON (below), for your own services |
+
+Override the detection with `prw config set webhook_format <auto|slack|discord|generic>` — for example `slack` for Slack-compatible services such as Mattermost.
+
+The `generic` payload:
 
 ```json
 {
@@ -298,17 +309,17 @@ If you configure a `webhook_url`, `prw` will POST a JSON payload on every status
   "pr_number": 12345,
   "title": "Fix controller race condition",
   "previous_state": "pending",
-  "current_state": "success",
+  "current_state": "failure",
   "sha": "abc123def456",
+  "failed_checks": [
+    { "name": "Unit Tests", "url": "https://github.com/kubernetes/kubernetes/runs/1" }
+  ],
   "url": "https://github.com/kubernetes/kubernetes/pull/12345",
   "timestamp": "2025-12-06T10:32:15Z"
 }
 ```
 
-This works with:
-- **Slack**: Use incoming webhooks
-- **Discord**: Use webhook URLs
-- **Custom services**: Any endpoint that accepts JSON POST
+`failed_checks` is omitted when nothing failed. If the endpoint rejects the request, the error includes the response body (e.g. Slack's `invalid_payload`), and requests time out after 10 seconds.
 
 ### Notification filters
 

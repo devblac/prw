@@ -239,6 +239,7 @@ func TestConfigShowCmd(t *testing.T) {
 	cfg := &config.Config{
 		PollIntervalSeconds: 30,
 		WebhookURL:          "https://example.com/webhook",
+		WebhookFormat:       "discord",
 		NotificationFilter:  "fail",
 		WatchedPRs: []config.WatchedPR{
 			{Owner: "owner", Repo: "repo", Number: 123},
@@ -251,6 +252,9 @@ func TestConfigShowCmd(t *testing.T) {
 	output, err := captureStdout(func() error {
 		return configShowCmd.RunE(configShowCmd, []string{})
 	})
+	if err == nil && !strings.Contains(output, "webhook_format: discord") {
+		t.Errorf("output missing webhook_format: %s", output)
+	}
 	if err != nil {
 		t.Fatalf("configShowCmd.RunE() error = %v", err)
 	}
@@ -310,6 +314,30 @@ func TestConfigSetCmd(t *testing.T) {
 			checkFunc: func(cfg *config.Config) error {
 				if cfg.WebhookURL != "https://example.com/webhook" {
 					return fmt.Errorf("expected webhook URL, got %s", cfg.WebhookURL)
+				}
+				return nil
+			},
+		},
+		{
+			name:    "set webhook_format",
+			key:     "webhook_format",
+			value:   " Slack ",
+			wantErr: false,
+			checkFunc: func(cfg *config.Config) error {
+				if cfg.WebhookFormat != "slack" {
+					return fmt.Errorf("expected slack, got %q", cfg.WebhookFormat)
+				}
+				return nil
+			},
+		},
+		{
+			name:    "invalid webhook_format",
+			key:     "webhook_format",
+			value:   "teams",
+			wantErr: true,
+			checkFunc: func(cfg *config.Config) error {
+				if cfg.WebhookFormat != "" {
+					return fmt.Errorf("expected format to stay unset, got %q", cfg.WebhookFormat)
 				}
 				return nil
 			},
@@ -446,6 +474,20 @@ func TestConfigUnsetCmd(t *testing.T) {
 			checkFunc: func(cfg *config.Config) error {
 				if cfg.WebhookURL != "" {
 					return fmt.Errorf("expected empty, got %s", cfg.WebhookURL)
+				}
+				return nil
+			},
+		},
+		{
+			name: "unset webhook_format",
+			key:  "webhook_format",
+			setupFunc: func(cfg *config.Config) {
+				cfg.WebhookFormat = "discord"
+			},
+			wantErr: false,
+			checkFunc: func(cfg *config.Config) error {
+				if cfg.WebhookFormat != "" {
+					return fmt.Errorf("expected empty, got %q", cfg.WebhookFormat)
 				}
 				return nil
 			},

@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Slack and Discord webhooks now work: `prw` sends a Slack message (`text`) or Discord embed instead of its raw JSON, which both services rejected with HTTP 400. The format is detected from the URL and can be overridden with `prw config set webhook_format <auto|slack|discord|generic>`; other URLs keep the existing JSON payload.
+- Webhook requests now time out after 10 seconds instead of waiting indefinitely, and webhook errors include the response body.
 - CI status now aggregates GitHub Check Runs (GitHub Actions) together with legacy commit statuses. Previously, repositories using only GitHub Actions were reported as `pending` forever and never triggered notifications.
 
 ### Added

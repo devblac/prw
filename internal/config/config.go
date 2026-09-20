@@ -20,6 +20,7 @@ type Config struct {
 	// Global settings
 	PollIntervalSeconds int    `json:"poll_interval_seconds"`
 	WebhookURL          string `json:"webhook_url,omitempty"`
+	WebhookFormat       string `json:"webhook_format,omitempty"`
 	GitHubToken         string `json:"github_token,omitempty"`
 	NotificationFilter  string `json:"notification_filter,omitempty"`
 	NotificationNative  bool   `json:"notification_native,omitempty"`
