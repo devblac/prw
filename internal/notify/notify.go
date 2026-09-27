@@ -2,6 +2,7 @@ package notify
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -39,14 +40,17 @@ func NewMultiNotifier(notifiers ...Notifier) *MultiNotifier {
 	return &MultiNotifier{notifiers: notifiers}
 }
 
-// Notify sends the event to all notifiers.
+// Notify sends the event to every notifier, even if an earlier one fails - a broken
+// webhook must not stop the console or native notifications from firing. Errors from
+// every notifier that failed are combined into one (nil if all succeeded).
 func (m *MultiNotifier) Notify(event *StatusChangeEvent) error {
+	var errs []error
 	for _, n := range m.notifiers {
 		if err := n.Notify(event); err != nil {
-			return err
+			errs = append(errs, err)
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // ConsoleNotifier prints notifications to stdout.
