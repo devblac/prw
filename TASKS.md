@@ -80,7 +80,8 @@ Legend — Impact: 1–5 · Effort: S (≤½ day), M (1–2 days), L (3+ days) �
 - ✅ #2 Slack/Discord webhook formats — done (`webhook_format` config, auto-detected from URL; also covers the webhook timeout part of #6)
 - ✅ #3 Windows toast + injection-safe escaping — done (verified on Windows: old script fails to parse; new script runs and a hostile title executes nothing)
 - ✅ #4 Reload config each tick / atomic writes — done (locked read-modify-write via `config.Update`; watcher persists only PR state; test suite no longer clobbers the real config)
-- Next: #5 Auto-remove merged/closed PRs
+- ✅ #5 Auto-remove merged/closed PRs — done (verified live against devblac/prw#5: state=closed, merged=true); notifies once, always regardless of --on, then drops the PR via config.RemovePRs
+- Next: #6 Robustness quick wins (MultiNotifier continues on error, README version URLs)
 
 ## Planned
 

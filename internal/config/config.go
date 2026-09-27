@@ -242,6 +242,24 @@ func SavePRStates(prs []WatchedPR) error {
 	})
 }
 
+// RemovePRs removes prs (matched by owner/repo/number) from the config file, without
+// touching PRs added or removed by other commands since this process last loaded the
+// config. Used to auto-drop PRs once they are merged or closed.
+func RemovePRs(prs []WatchedPR) error {
+	return Update(func(c *Config) error {
+		changed := false
+		for _, pr := range prs {
+			if c.RemovePR(pr.Owner, pr.Repo, pr.Number) {
+				changed = true
+			}
+		}
+		if !changed {
+			return ErrNoChanges
+		}
+		return nil
+	})
+}
+
 // AddPR adds a PR to the watched list if not already present.
 func (c *Config) AddPR(pr WatchedPR) bool {
 	for _, existing := range c.WatchedPRs {
