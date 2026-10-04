@@ -31,6 +31,7 @@ The tool is deliberately minimal. It does one thing well: watch PRs and tell you
 
 ## Features
 
+- **`prw wait`**: block until a PR's CI finishes and exit 0/1/2 — for scripts, pipelines and AI coding agents
 - **Auto-cleanup**: merged/closed PRs are notified once and dropped from the watch list by `prw run`
 - **Watch multiple PRs** from different repositories simultaneously
 - **Instant notifications** when CI status changes (pending, success, failure, error)
@@ -208,6 +209,47 @@ Stop watching a PR:
 ```bash
 prw unwatch https://github.com/owner/repo/pull/123
 ```
+
+## Waiting for CI in scripts and agents: `prw wait`
+
+`prw wait` blocks until a PR's CI finishes and exits with a code you can branch on. The PR does not need to be on the watch list.
+
+```bash
+prw wait https://github.com/owner/repo/pull/123 && ./deploy.sh
+
+# Machine-readable result on stdout (progress goes to stderr)
+prw wait "$PR_URL" --timeout 15m --json
+```
+
+| Exit code | Meaning |
+|-----------|---------|
+| `0` | CI succeeded, or the PR was merged while waiting (e.g. auto-merge) |
+| `1` | CI failed (`failure` or `error`) |
+| `2` | Timed out (`--timeout`, default 30m) while CI was still pending |
+| `3` | Other error: invalid URL, API error, missing token, PR closed without merging |
+| `130` | Interrupted (Ctrl+C) |
+
+It fails fast — as soon as one check fails it exits `1` with the failed checks and their links, without waiting for the rest. If someone pushes to the PR meanwhile, it follows the new head commit. Transient errors (network, 5xx, rate limits) are retried up to 3 times in a row. Polls every 15s by default (`--interval`).
+
+With `--json`, stdout is a single object:
+
+```json
+{
+  "owner": "owner",
+  "repo": "repo",
+  "number": 123,
+  "title": "Add feature",
+  "url": "https://github.com/owner/repo/pull/123",
+  "sha": "abc123…",
+  "state": "failure",
+  "failed_checks": [{ "name": "Test", "url": "https://github.com/owner/repo/actions/runs/…" }],
+  "total_checks": 4,
+  "pending_checks": 1,
+  "elapsed_seconds": 212.4
+}
+```
+
+`state` is one of `success`, `failure`, `error`, `pending` (with `timed_out` or `interrupted` set), `merged`, or `closed`.
 
 ## Configuration
 

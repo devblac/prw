@@ -696,6 +696,25 @@ func TestFetchCIStatus_PropagatesErrors(t *testing.T) {
 	}
 }
 
+func TestSummarizeCI_Counts(t *testing.T) {
+	status := &CombinedStatus{State: "pending", TotalCount: 2, Statuses: []CommitStatus{
+		{Context: "ci/jenkins", State: "pending"},
+		{Context: "ci/lint", State: "success"},
+	}}
+	runs := []CheckRun{
+		{Name: "Test", Status: "in_progress"},
+		{Name: "Build", Status: "queued"},
+		{Name: "Docs", Status: "completed", Conclusion: "success"},
+	}
+	ci := SummarizeCI(status, runs)
+	if ci.Total != 5 || ci.Pending != 3 {
+		t.Errorf("Total/Pending = %d/%d, want 5/3", ci.Total, ci.Pending)
+	}
+	if empty := SummarizeCI(&CombinedStatus{State: "pending"}, nil); empty.Total != 0 || empty.Pending != 0 {
+		t.Errorf("no CI should count 0/0, got %d/%d", empty.Total, empty.Pending)
+	}
+}
+
 func TestSummarizeCI(t *testing.T) {
 	noStatuses := &CombinedStatus{State: "pending", TotalCount: 0}
 	completed := func(name, conclusion string) CheckRun {

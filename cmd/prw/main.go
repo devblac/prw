@@ -23,6 +23,10 @@ import (
 
 func main() {
 	if err := rootCmd.Execute(); err != nil {
+		var exitErr *exitError
+		if errors.As(err, &exitErr) {
+			os.Exit(exitErr.code)
+		}
 		os.Exit(1)
 	}
 }

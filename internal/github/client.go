@@ -102,6 +102,10 @@ type FailedCheck struct {
 type CIStatus struct {
 	State        string // pending, success, failure, error
 	FailedChecks []FailedCheck
+	// Total and Pending count individual commit statuses and check runs; Pending
+	// ones have not finished yet.
+	Total   int
+	Pending int
 }
 
 // CIFetcher is the subset of GitHub operations needed to compute CI status.
@@ -196,6 +200,7 @@ func FetchCIStatus(c CIFetcher, owner, repo, ref string) (*CIStatus, error) {
 func SummarizeCI(status *CombinedStatus, runs []CheckRun) *CIStatus {
 	var failed []FailedCheck
 	var hasFailure, hasError, hasPending bool
+	var total, pending int
 
 	if status != nil {
 		legacyState := NormalizeState(status.State)
@@ -214,15 +219,22 @@ func SummarizeCI(status *CombinedStatus, runs []CheckRun) *CIStatus {
 			}
 		}
 		for _, s := range status.Statuses {
-			if st := NormalizeState(s.State); st == "failure" || st == "error" {
+			total++
+			st := NormalizeState(s.State)
+			if st == "pending" {
+				pending++
+			}
+			if st == "failure" || st == "error" {
 				failed = append(failed, FailedCheck{Name: s.Context, URL: s.TargetURL})
 			}
 		}
 	}
 
 	for _, run := range runs {
+		total++
 		if NormalizeState(run.Status) != "completed" {
 			hasPending = true
+			pending++
 			continue
 		}
 		switch NormalizeState(run.Conclusion) {
@@ -245,7 +257,7 @@ func SummarizeCI(status *CombinedStatus, runs []CheckRun) *CIStatus {
 		state = "pending"
 	}
 
-	return &CIStatus{State: state, FailedChecks: failed}
+	return &CIStatus{State: state, FailedChecks: failed, Total: total, Pending: pending}
 }
 
 func hasCISignal(status *CombinedStatus, runs []CheckRun) bool {
