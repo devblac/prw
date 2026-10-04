@@ -266,7 +266,11 @@ func (c *Client) getJSON(path string, v interface{}) error {
 		return err
 	}
 
-	req.Header.Set("Authorization", "Bearer "+c.Token)
+	// GitHub rejects an empty "Bearer " with 401 even for public repos, so only send the
+	// header when there is a token.
+	if c.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
 
 	resp, err := c.HTTPClient.Do(req)

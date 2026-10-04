@@ -10,7 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `prw run` now notifies once (`merged` or `closed`) and automatically stops watching a PR once it is merged or closed, instead of polling it forever. This notification always fires, regardless of `--on`/`notification_filter`.
 
+### Added
+- Integration tests against the real GitHub API (`make integration`, build tag `integration`), run nightly by a new `Integration` workflow. They fail against the old status-only logic.
+
 ### Fixed
+- Requests without a token no longer send an empty `Authorization: Bearer ` header, which GitHub rejects with 401 even for public repositories.
 - `MultiNotifier` (used whenever more than one notification channel is enabled) stopped at the first failing notifier. A down webhook silently suppressed the console and native notifications that were supposed to run after it; now every notifier always runs and their errors are combined.
 - The README's "Prebuilt binaries" install snippet was pinned to `v0.2.0`, two releases behind the current `v0.3.0`. It now resolves the actual latest release tag first.
 - `prw watch` / `prw unwatch` while `prw run` is running: the watcher used to overwrite the config file with its stale in-memory copy on every poll, silently dropping PRs you had just added and resurrecting ones you had removed. It now re-reads the watch list on every poll (changes take effect on the next tick) and saves only the polling state of the PRs, using a locked read-modify-write. `watch`, `unwatch`, `config set/unset` and `broadcast` use the same mechanism.

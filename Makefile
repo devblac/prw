@@ -1,4 +1,4 @@
-.PHONY: build test coverage lint clean install help
+.PHONY: build test integration coverage lint clean install help
 
 # Build variables
 BINARY_NAME=prw
@@ -31,6 +31,10 @@ coverage: ## Run tests with coverage
 	@go tool cover -func=coverage.out | grep total:
 	@echo ""
 	@echo "For detailed HTML coverage report, run: go tool cover -html=coverage.out"
+
+integration: ## Run integration tests against the real GitHub API (uses GITHUB_TOKEN if set)
+	@echo "Running integration tests..."
+	go test -v -count=1 -tags integration -run Integration ./internal/github/...
 
 lint: ## Run linters
 	@echo "Running go vet..."

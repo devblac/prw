@@ -385,6 +385,14 @@ make build
 make test
 ```
 
+### Run integration tests
+
+```bash
+make integration
+```
+
+These hit the real GitHub API (using `GITHUB_TOKEN` if set, unauthenticated otherwise) against fixed objects in this repo, and also run nightly in CI. They are excluded from `make test`.
+
 ### Check coverage
 
 ```bash
