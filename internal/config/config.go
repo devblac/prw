@@ -1,10 +1,12 @@
 package config
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -294,12 +296,59 @@ func (c *Config) UpdatePR(owner, repo string, number int, sha, state string) {
 	}
 }
 
-// GetToken returns the GitHub token from config or environment.
-func (c *Config) GetToken() string {
-	if c.GitHubToken != "" {
-		return c.GitHubToken
+// Where ResolveToken found the GitHub token.
+const (
+	TokenSourceNone      = "not set"
+	TokenSourceConfig    = "config file"
+	TokenSourceEnv       = "environment variable (GITHUB_TOKEN)"
+	TokenSourceGHEnv     = "environment variable (GH_TOKEN)"
+	TokenSourceGitHubCLI = "GitHub CLI (gh auth token)"
+
+	ghAuthTokenTimeout    = 5 * time.Second
+	ghAuthTokenGitHubHost = "github.com"
+)
+
+// GHAuthToken asks the GitHub CLI for its token, so anyone logged in with
+// `gh auth login` (including users running prw as a gh extension) needs no extra
+// setup. It is a variable so tests can replace it and never run the real gh.
+var GHAuthToken = func() (string, error) {
+	path, err := exec.LookPath("gh")
+	if err != nil {
+		return "", err
 	}
-	return os.Getenv("GITHUB_TOKEN")
+	ctx, cancel := context.WithTimeout(context.Background(), ghAuthTokenTimeout)
+	defer cancel()
+	// prw only talks to api.github.com, so ask for that host's token explicitly
+	// rather than whatever GH_HOST points to.
+	out, err := exec.CommandContext(ctx, path, "auth", "token", "--hostname", ghAuthTokenGitHubHost).Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// ResolveToken returns the GitHub token and where it came from, checking in order:
+// the config file, GITHUB_TOKEN, GH_TOKEN, and finally `gh auth token`.
+func (c *Config) ResolveToken() (token, source string) {
+	if c.GitHubToken != "" {
+		return c.GitHubToken, TokenSourceConfig
+	}
+	if t := os.Getenv("GITHUB_TOKEN"); t != "" {
+		return t, TokenSourceEnv
+	}
+	if t := os.Getenv("GH_TOKEN"); t != "" {
+		return t, TokenSourceGHEnv
+	}
+	if t, err := GHAuthToken(); err == nil && t != "" {
+		return t, TokenSourceGitHubCLI
+	}
+	return "", TokenSourceNone
+}
+
+// GetToken returns the GitHub token (see ResolveToken), or "" if none is available.
+func (c *Config) GetToken() string {
+	token, _ := c.ResolveToken()
+	return token
 }
 
 // normalizeNotificationFilter applies defaults and validation for the notification filter.

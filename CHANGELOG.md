@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `prw run` now notifies once (`merged` or `closed`) and automatically stops watching a PR once it is merged or closed, instead of polling it forever. This notification always fires, regardless of `--on`/`notification_filter`.
 
 ### Added
+- Zero-setup auth for GitHub CLI users: when no token is configured, `prw` uses `GH_TOKEN` or, failing that, the token from `gh auth token`. Lookup order: config file, `GITHUB_TOKEN`, `GH_TOKEN`, `gh auth token`. `prw config show` now reports the exact source.
 - Integration tests against the real GitHub API (`make integration`, build tag `integration`), run nightly by a new `Integration` workflow. They fail against the old status-only logic.
 
 ### Fixed

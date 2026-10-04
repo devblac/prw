@@ -42,7 +42,7 @@ var broadcastCmd = &cobra.Command{
 
 		token := cfg.GetToken()
 		if token == "" {
-			return fmt.Errorf("missing GITHUB_TOKEN; set it as an environment variable or configure it with 'prw config set github_token <token>'")
+			return errMissingToken
 		}
 
 		filter := strings.ToLower(strings.TrimSpace(broadcastFilter))

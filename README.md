@@ -111,13 +111,15 @@ make install
 
 ### 1. Set up your GitHub token
 
-`prw` needs a GitHub Personal Access Token to query PR status. A classic token only requires `repo` scope (or `public_repo` for public repos only). Fine-grained tokens need read access to **Pull requests**, **Commit statuses**, and **Checks**.
+**If you use the [GitHub CLI](https://cli.github.com/) and have run `gh auth login`, there is nothing to do** — `prw` reuses that login automatically.
+
+Otherwise `prw` needs a GitHub Personal Access Token. A classic token only requires `repo` scope (or `public_repo` for public repos only). Fine-grained tokens need read access to **Pull requests**, **Commit statuses**, and **Checks**.
 
 `prw` combines GitHub Actions check runs with legacy commit statuses (Jenkins, CircleCI, etc.), so it works regardless of which CI you use.
 
 Create a token at: https://github.com/settings/tokens
 
-Then export it:
+Then export it (`GH_TOKEN` works too):
 
 ```bash
 export GITHUB_TOKEN="ghp_your_token_here"
@@ -128,6 +130,8 @@ Alternatively, store it in the config file:
 ```bash
 prw config set github_token "ghp_your_token_here"
 ```
+
+When several are available, `prw` uses the first one found in this order: config file, `GITHUB_TOKEN`, `GH_TOKEN`, `gh auth token`. `prw config show` tells you which one is in use.
 
 ### 2. Watch a pull request
 
@@ -347,7 +351,7 @@ Once `prw run` sees that a watched PR was merged or closed, it sends one final n
 
 ## Troubleshooting
 
-- **missing GITHUB_TOKEN**: set via env var or `prw config set github_token <token>`.
+- **missing GITHUB_TOKEN**: run `gh auth login`, set `GITHUB_TOKEN`/`GH_TOKEN`, or use `prw config set github_token <token>`. `prw config show` shows which source (if any) was found.
 - **Webhook fails**: verify URL, check HTTP 2xx, try `prw broadcast --dry-run` first.
 - **Rate limits**: increase `poll_interval_seconds`.
 

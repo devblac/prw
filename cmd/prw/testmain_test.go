@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -18,6 +19,9 @@ func TestMain(m *testing.M) {
 	config.ConfigPath = func() (string, error) {
 		return filepath.Join(dir, ".prw", "config.json"), nil
 	}
+	// Never pick up the developer's (or CI runner's) gh login or GH_TOKEN.
+	config.GHAuthToken = func() (string, error) { return "", errors.New("gh disabled in tests") }
+	os.Unsetenv("GH_TOKEN")
 	code := m.Run()
 	os.RemoveAll(dir)
 	os.Exit(code)

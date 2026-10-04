@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -32,8 +33,9 @@ var rootCmd = &cobra.Command{
 	Long: `prw is a CLI tool that watches GitHub pull requests and notifies you
 when their CI status changes (pending → success/failure).
 
-Configure your GitHub token via GITHUB_TOKEN environment variable or
-in ~/.prw/config.json.`,
+If you are logged in with the GitHub CLI ('gh auth login'), prw uses that token
+automatically. Otherwise set GITHUB_TOKEN (or GH_TOKEN), or store a token with
+'prw config set github_token <token>'.`,
 }
 
 func init() {
@@ -58,6 +60,9 @@ var (
 	notifyNative bool
 )
 
+// errMissingToken is returned by commands that need GitHub access when no token is found.
+var errMissingToken = errors.New("missing GITHUB_TOKEN; run 'gh auth login', set GITHUB_TOKEN, or configure it with 'prw config set github_token <token>'")
+
 // newGitHubClient allows tests to inject a custom GitHub client.
 var newGitHubClient = github.NewClient
 
@@ -80,7 +85,7 @@ var watchCmd = &cobra.Command{
 
 		token := cfg.GetToken()
 		if token == "" {
-			return fmt.Errorf("missing GITHUB_TOKEN; set it as an environment variable or configure it with 'prw config set github_token <token>'")
+			return errMissingToken
 		}
 
 		// Try to fetch the PR to validate it exists and get title
@@ -212,7 +217,7 @@ Press Ctrl+C to stop.`,
 
 		token := cfg.GetToken()
 		if token == "" {
-			return fmt.Errorf("missing GITHUB_TOKEN; set it as an environment variable or configure it with 'prw config set github_token <token>'")
+			return errMissingToken
 		}
 
 		client := newGitHubClient(token)
@@ -284,12 +289,7 @@ var configShowCmd = &cobra.Command{
 		fmt.Printf("notification_filter: %s\n", cfg.NotificationFilter)
 		fmt.Printf("notification_native: %v\n", cfg.NotificationNative)
 
-		tokenSource := "not set"
-		if cfg.GitHubToken != "" {
-			tokenSource = "config file"
-		} else if os.Getenv("GITHUB_TOKEN") != "" {
-			tokenSource = "environment variable"
-		}
+		_, tokenSource := cfg.ResolveToken()
 		fmt.Printf("github_token: %s\n", tokenSource)
 
 		fmt.Printf("\nWatched PRs: %d\n", len(cfg.WatchedPRs))

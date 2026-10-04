@@ -83,7 +83,8 @@ Legend — Impact: 1–5 · Effort: S (≤½ day), M (1–2 days), L (3+ days) �
 - ✅ #5 Auto-remove merged/closed PRs — done (verified live against devblac/prw#5: state=closed, merged=true); notifies once, always regardless of --on, then drops the PR via config.RemovePRs
 - ✅ #6 Robustness quick wins — done (MultiNotifier no longer stops at the first failure; README install snippet resolves the real latest release instead of a hardcoded v0.2.0, verified against the actual v0.3.0 asset). Webhook timeout/error-body part was already covered by #2.
 - ✅ #7 Live integration smoke test — done (`internal/github/integration_test.go`, nightly `integration.yml`, `make integration`; verified the old /status-only logic fails it). **Phase 0 complete.**
-- Next: #8 `gh` extension distribution
+- 🟡 #8 `gh` extension distribution — code part done (token from `GH_TOKEN` / `gh auth token`, tested with a fake gh binary and end-to-end). Remaining: publishing as `gh-prw` needs a repo named `gh-prw` (new repo or rename) + precompiled release assets named `gh-prw-<os>-<arch>` — owner decision.
+- Next: #13 `prw wait <PR>` (S effort, high ROI) or #9 API efficiency
 
 ## Planned
 
