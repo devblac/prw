@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -23,6 +24,38 @@ type Client struct {
 	BaseURL    string
 	Token      string
 	HTTPClient *http.Client
+
+	// mu guards cache and rateLimit. cache holds the last ETag and body per request
+	// path: a long-running watcher re-asks for the same resources every poll, and a
+	// conditional request answered with 304 Not Modified does not count against the
+	// rate limit.
+	mu        sync.Mutex
+	cache     map[string]cachedResponse
+	rateLimit RateLimit
+}
+
+type cachedResponse struct {
+	etag string
+	body []byte
+}
+
+// maxCacheEntries bounds the ETag cache; paths include commit SHAs, so it would
+// otherwise grow with every push to a watched PR.
+const maxCacheEntries = 512
+
+// RateLimit is the API quota reported by the most recent response.
+type RateLimit struct {
+	Limit     int
+	Remaining int
+	Reset     time.Time
+	Known     bool
+}
+
+// RateLimit returns the quota reported by the most recent API response.
+func (c *Client) RateLimit() RateLimit {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.rateLimit
 }
 
 // NewClient creates a new GitHub client with a 15-second timeout.
@@ -40,10 +73,30 @@ func NewClient(token string) *Client {
 type APIError struct {
 	StatusCode int
 	Body       string
+	// RateLimited is set when GitHub rejected the request because of a primary or
+	// secondary rate limit. ResetAt is when it is worth retrying (zero if unknown).
+	RateLimited bool
+	ResetAt     time.Time
 }
 
 func (e *APIError) Error() string {
+	if e.RateLimited {
+		if !e.ResetAt.IsZero() {
+			return fmt.Sprintf("GitHub API rate limit exceeded (%d); resets at %s", e.StatusCode, e.ResetAt.Local().Format("15:04:05"))
+		}
+		return fmt.Sprintf("GitHub API rate limit exceeded (%d)", e.StatusCode)
+	}
 	return fmt.Sprintf("GitHub API returned %d: %s", e.StatusCode, e.Body)
+}
+
+// IsRateLimited reports whether err is (or wraps) a rate-limit APIError, and when to
+// retry (zero if unknown).
+func IsRateLimited(err error) (bool, time.Time) {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) && apiErr.RateLimited {
+		return true, apiErr.ResetAt
+	}
+	return false, time.Time{}
 }
 
 // PullRequest represents a GitHub pull request.
@@ -165,7 +218,7 @@ func (c *Client) GetCheckRuns(owner, repo, ref string) ([]CheckRun, error) {
 		var resp checkRunsResponse
 		if err := c.getJSON(path, &resp); err != nil {
 			var apiErr *APIError
-			if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusForbidden {
+			if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusForbidden && !apiErr.RateLimited {
 				return nil, fmt.Errorf("%w (fine-grained tokens need the \"Checks: read\" permission)", err)
 			}
 			return nil, err
@@ -285,21 +338,95 @@ func (c *Client) getJSON(path string, v interface{}) error {
 	}
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
 
+	c.mu.Lock()
+	cached, haveCached := c.cache[path]
+	c.mu.Unlock()
+	if haveCached {
+		req.Header.Set("If-None-Match", cached.etag)
+	}
+
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
+	c.recordRateLimit(resp.Header)
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return &APIError{StatusCode: resp.StatusCode, Body: string(body)}
+	var body []byte
+	switch {
+	case resp.StatusCode == http.StatusNotModified && haveCached:
+		body = cached.body
+	case resp.StatusCode == http.StatusOK:
+		body, err = io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("request failed: %w", err)
+		}
+		if etag := resp.Header.Get("ETag"); etag != "" {
+			c.storeCache(path, cachedResponse{etag: etag, body: body})
+		}
+	default:
+		errBody, _ := io.ReadAll(resp.Body)
+		return newAPIError(resp, errBody)
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(v); err != nil {
+	if err := json.Unmarshal(body, v); err != nil {
 		return fmt.Errorf("failed to decode response: %w", err)
 	}
 	return nil
+}
+
+func (c *Client) storeCache(path string, entry cachedResponse) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.cache == nil || len(c.cache) >= maxCacheEntries {
+		c.cache = make(map[string]cachedResponse)
+	}
+	c.cache[path] = entry
+}
+
+func (c *Client) recordRateLimit(h http.Header) {
+	limit, errL := strconv.Atoi(h.Get("X-RateLimit-Limit"))
+	remaining, errR := strconv.Atoi(h.Get("X-RateLimit-Remaining"))
+	reset, errS := strconv.ParseInt(h.Get("X-RateLimit-Reset"), 10, 64)
+	if errL != nil || errR != nil || errS != nil {
+		return
+	}
+	c.mu.Lock()
+	c.rateLimit = RateLimit{Limit: limit, Remaining: remaining, Reset: time.Unix(reset, 0), Known: true}
+	c.mu.Unlock()
+}
+
+// newAPIError builds an APIError, detecting rate limits. GitHub signals them with 429,
+// or with 403 plus either X-RateLimit-Remaining: 0 (primary limit) or a
+// "rate limit" message (secondary limit); 403 alone usually means missing permissions.
+func newAPIError(resp *http.Response, body []byte) *APIError {
+	apiErr := &APIError{StatusCode: resp.StatusCode, Body: string(body)}
+	if resp.StatusCode != http.StatusForbidden && resp.StatusCode != http.StatusTooManyRequests {
+		return apiErr
+	}
+	exhausted := resp.Header.Get("X-RateLimit-Remaining") == "0"
+	retryAfter, hasRetryAfter := parseRetryAfter(resp.Header.Get("Retry-After"))
+	mentionsLimit := strings.Contains(strings.ToLower(apiErr.Body), "rate limit")
+	if resp.StatusCode == http.StatusTooManyRequests || exhausted || hasRetryAfter || mentionsLimit {
+		apiErr.RateLimited = true
+		switch {
+		case hasRetryAfter:
+			apiErr.ResetAt = time.Now().Add(retryAfter)
+		case exhausted:
+			if reset, err := strconv.ParseInt(resp.Header.Get("X-RateLimit-Reset"), 10, 64); err == nil {
+				apiErr.ResetAt = time.Unix(reset, 0)
+			}
+		}
+	}
+	return apiErr
+}
+
+func parseRetryAfter(v string) (time.Duration, bool) {
+	secs, err := strconv.Atoi(strings.TrimSpace(v))
+	if err != nil || secs < 0 {
+		return 0, false
+	}
+	return time.Duration(secs) * time.Second, true
 }
 
 // FormatPRURL constructs a GitHub PR URL.

@@ -395,7 +395,7 @@ Once `prw run` sees that a watched PR was merged or closed, it sends one final n
 
 - **missing GITHUB_TOKEN**: run `gh auth login`, set `GITHUB_TOKEN`/`GH_TOKEN`, or use `prw config set github_token <token>`. `prw config show` shows which source (if any) was found.
 - **Webhook fails**: verify URL, check HTTP 2xx, try `prw broadcast --dry-run` first.
-- **Rate limits**: increase `poll_interval_seconds`.
+- **Rate limits**: `prw` uses conditional requests (ETags), so a poll where nothing changed costs no API quota when authenticated — in practice only PRs whose CI is actively changing use quota. If GitHub still reports a rate limit, `prw run` pauses all checks until the limit resets (and says so), and `prw wait` waits for the reset instead of failing. Unauthenticated use is limited to 60 requests/hour: run `gh auth login` or set a token.
 
 ## Uninstall / cleanup
 
