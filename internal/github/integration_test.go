@@ -93,6 +93,58 @@ func TestIntegration_MergedPullRequest(t *testing.T) {
 	}
 }
 
+// statusRecorder records the HTTP status of every response.
+type statusRecorder struct {
+	codes []int
+}
+
+func (s *statusRecorder) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := http.DefaultTransport.RoundTrip(req)
+	if err == nil {
+		s.codes = append(s.codes, resp.StatusCode)
+	}
+	return resp, err
+}
+
+func TestIntegration_ConditionalRequestsAreFree(t *testing.T) {
+	if os.Getenv("GITHUB_TOKEN") == "" {
+		// Unauthenticated 304s still count against the 60/h limit; GitHub only
+		// exempts them for authenticated requests.
+		t.Skip("needs GITHUB_TOKEN")
+	}
+	c := integrationClient(t)
+	rec := &statusRecorder{}
+	c.HTTPClient.Transport = rec
+
+	first, err := c.GetPullRequest(fixtureOwner, fixtureRepo, fixtureMergedPR)
+	if err != nil {
+		t.Fatalf("first request: %v", err)
+	}
+	before := c.RateLimit()
+
+	second, err := c.GetPullRequest(fixtureOwner, fixtureRepo, fixtureMergedPR)
+	if err != nil {
+		t.Fatalf("second request: %v", err)
+	}
+	after := c.RateLimit()
+
+	if len(rec.codes) != 2 || rec.codes[0] != http.StatusOK || rec.codes[1] != http.StatusNotModified {
+		t.Fatalf("status codes = %v, want [200 304]", rec.codes)
+	}
+	if second.Title != first.Title || second.Head.SHA != first.Head.SHA {
+		t.Errorf("cached body differs: %+v vs %+v", second, first)
+	}
+	if !before.Known || !after.Known {
+		t.Fatalf("rate limit headers missing: %+v / %+v", before, after)
+	}
+	// Other clients sharing the token may spend quota concurrently, so only require
+	// that this 304 didn't cost anything when the window didn't roll over.
+	if after.Reset.Equal(before.Reset) && after.Remaining < before.Remaining {
+		t.Errorf("304 consumed quota: remaining %d -> %d", before.Remaining, after.Remaining)
+	}
+	t.Logf("rate limit: %d/%d remaining (unchanged by the 304)", after.Remaining, after.Limit)
+}
+
 func TestIntegration_MissingPullRequestIs404(t *testing.T) {
 	_, err := integrationClient(t).GetPullRequest(fixtureOwner, fixtureRepo, 999999)
 	var apiErr *APIError

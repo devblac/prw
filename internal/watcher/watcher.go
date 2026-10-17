@@ -28,7 +28,16 @@ type Watcher struct {
 	client   GitHubClient
 	config   *config.Config
 	notifier notify.Notifier
+
+	// pausedUntil is set when GitHub reports a rate limit; polls are skipped until then
+	// so the watcher stops spending requests that are bound to fail.
+	pausedUntil time.Time
+	// now is the clock; tests replace it.
+	now func() time.Time
 }
+
+// defaultRateLimitPause is used when GitHub doesn't say when the limit resets.
+const defaultRateLimitPause = time.Minute
 
 // New creates a new Watcher.
 func New(client GitHubClient, cfg *config.Config, notifier notify.Notifier) *Watcher {
@@ -36,6 +45,7 @@ func New(client GitHubClient, cfg *config.Config, notifier notify.Notifier) *Wat
 		client:   client,
 		config:   cfg,
 		notifier: notifier,
+		now:      time.Now,
 	}
 }
 
@@ -60,6 +70,9 @@ func (w *Watcher) Run(ctx context.Context) error {
 			fmt.Println("\nWatcher stopped.")
 			return ctx.Err()
 		case <-ticker.C:
+			if w.now().Before(w.pausedUntil) {
+				continue // rate limited; the pause message was printed when it started
+			}
 			w.reloadWatchedPRs()
 			w.checkAllPRs()
 		}
@@ -98,8 +111,15 @@ func (w *Watcher) checkAllPRs() {
 		pr := w.config.WatchedPRs[i]
 		closed, err := w.checkPR(&pr)
 		if err != nil {
-			fmt.Printf("Error checking PR %s/%s#%d: %v\n", pr.Owner, pr.Repo, pr.Number, err)
 			stillWatched = append(stillWatched, pr) // keep watching; preserve any partial update (e.g. title)
+			if limited, resetAt := github.IsRateLimited(err); limited {
+				// Every remaining request this round would fail too: keep the rest of
+				// the list unchanged and pause until the limit resets.
+				stillWatched = append(stillWatched, w.config.WatchedPRs[i+1:]...)
+				w.pauseForRateLimit(resetAt)
+				break
+			}
+			fmt.Printf("Error checking PR %s/%s#%d: %v\n", pr.Owner, pr.Repo, pr.Number, err)
 			continue
 		}
 		if closed {
@@ -121,6 +141,16 @@ func (w *Watcher) checkAllPRs() {
 			fmt.Printf("Warning: failed to remove merged/closed PRs from config: %v\n", err)
 		}
 	}
+}
+
+func (w *Watcher) pauseForRateLimit(resetAt time.Time) {
+	now := w.now()
+	if resetAt.Before(now) {
+		resetAt = now.Add(defaultRateLimitPause)
+	}
+	w.pausedUntil = resetAt
+	fmt.Printf("⚠️  GitHub API rate limit reached; pausing checks until %s (%s).\n",
+		resetAt.Local().Format("15:04:05"), resetAt.Sub(now).Round(time.Second))
 }
 
 // checkPR checks one PR's CI status and reports whether it is now closed (merged or
