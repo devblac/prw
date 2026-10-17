@@ -33,6 +33,7 @@ The tool is deliberately minimal. It does one thing well: watch PRs and tell you
 
 - **`prw wait`**: block until a PR's CI finishes and exit 0/1/2 — for scripts, pipelines and AI coding agents
 - **MCP server** (`prw mcp`): lets Claude Code, Claude Desktop, Cursor and other agents check and wait for PR CI as tools
+- **Auto-watch**: `prw watch --mine` / `--review-requested` follow your PRs and review requests across all repositories, no URLs needed
 - **Auto-cleanup**: merged/closed PRs are notified once and dropped from the watch list by `prw run`
 - **Watch multiple PRs** from different repositories simultaneously
 - **Instant notifications** when CI status changes (pending, success, failure, error)
@@ -142,6 +143,15 @@ prw watch https://github.com/owner/repo/pull/123
 ```
 
 The tool will fetch the PR details and add it to your watch list.
+
+**Or let prw find your PRs** — no URLs to copy:
+
+```bash
+prw watch --mine               # all your open PRs, in every repository
+prw watch --review-requested   # open PRs where your review is requested (incl. your teams)
+```
+
+These follow a GitHub search instead of a fixed list: matching PRs are added right away, and `prw run` searches again every 5 minutes, so new PRs show up by themselves. Merged or closed PRs are dropped after their final notification, and review-request PRs are also dropped once your review is no longer requested. `prw list` shows which PRs were added automatically (`ADDED BY`). Undo with `prw unwatch --mine` / `--review-requested`, which removes only the PRs that search added — PRs you watched by hand are kept.
 
 ### 3. Start the watcher
 

@@ -28,8 +28,68 @@ type Config struct {
 	NotificationFilter  string `json:"notification_filter,omitempty"`
 	NotificationNative  bool   `json:"notification_native,omitempty"`
 
+	// AutoWatch lists the searches (AutoWatchMine, AutoWatchReviewRequested) whose
+	// matching PRs are added to the watch list automatically.
+	AutoWatch []string `json:"auto_watch,omitempty"`
+
 	// Watched PRs
 	WatchedPRs []WatchedPR `json:"watched_prs"`
+}
+
+// Auto-watch sources.
+const (
+	AutoWatchMine            = "mine"
+	AutoWatchReviewRequested = "review-requested"
+)
+
+// AutoWatchSources are the valid auto-watch sources, in display order.
+var AutoWatchSources = []string{AutoWatchMine, AutoWatchReviewRequested}
+
+// HasAutoWatch reports whether source is enabled.
+func (c *Config) HasAutoWatch(source string) bool {
+	for _, s := range c.AutoWatch {
+		if s == source {
+			return true
+		}
+	}
+	return false
+}
+
+// EnableAutoWatch turns source on and reports whether it was off.
+func (c *Config) EnableAutoWatch(source string) bool {
+	if c.HasAutoWatch(source) {
+		return false
+	}
+	c.AutoWatch = append(c.AutoWatch, source)
+	return true
+}
+
+// DisableAutoWatch turns source off and removes the PRs it added (PRs watched by hand
+// are kept). It returns whether the source was on and the PRs removed.
+func (c *Config) DisableAutoWatch(source string) (wasOn bool, removed []WatchedPR) {
+	kept := c.AutoWatch[:0]
+	for _, s := range c.AutoWatch {
+		if s == source {
+			wasOn = true
+			continue
+		}
+		kept = append(kept, s)
+	}
+	c.AutoWatch = kept
+	if len(c.AutoWatch) == 0 {
+		c.AutoWatch = nil
+	}
+
+	prs := c.WatchedPRs[:0]
+	for _, pr := range c.WatchedPRs {
+		if pr.Source == source {
+			removed = append(removed, pr)
+			continue
+		}
+		prs = append(prs, pr)
+	}
+	c.WatchedPRs = prs
+	return wasOn, removed
 }
 
 // WatchedPR represents a pull request being watched.
@@ -41,6 +101,9 @@ type WatchedPR struct {
 	LastKnownState string    `json:"last_known_state,omitempty"`
 	LastChecked    time.Time `json:"last_checked,omitempty"`
 	Title          string    `json:"title,omitempty"`
+	// Source is the auto-watch source that added this PR, or empty if it was added by
+	// hand with `prw watch <PR_URL>`.
+	Source string `json:"source,omitempty"`
 }
 
 // DefaultConfig returns a config with sensible defaults.
@@ -213,7 +276,7 @@ func acquireLock(configPath string) (release func(), err error) {
 func (c *Config) ApplyPRState(pr WatchedPR) bool {
 	for i := range c.WatchedPRs {
 		w := &c.WatchedPRs[i]
-		if w.Owner == pr.Owner && w.Repo == pr.Repo && w.Number == pr.Number {
+		if samePR(*w, pr.Owner, pr.Repo, pr.Number) {
 			w.LastKnownSHA = pr.LastKnownSHA
 			w.LastKnownState = pr.LastKnownState
 			w.LastChecked = pr.LastChecked
@@ -262,10 +325,28 @@ func RemovePRs(prs []WatchedPR) error {
 	})
 }
 
+// samePR reports whether pr is owner/repo#number. GitHub owner and repository names
+// are case-insensitive, so "DevBlac/PRW" and "devblac/prw" are the same repository.
+func samePR(pr WatchedPR, owner, repo string, number int) bool {
+	return pr.Number == number && strings.EqualFold(pr.Owner, owner) && strings.EqualFold(pr.Repo, repo)
+}
+
+// MarkManual clears the auto-watch Source of a watched PR, so that disabling that
+// auto-watch source no longer removes it. It reports whether anything changed.
+func (c *Config) MarkManual(owner, repo string, number int) bool {
+	for i := range c.WatchedPRs {
+		if samePR(c.WatchedPRs[i], owner, repo, number) && c.WatchedPRs[i].Source != "" {
+			c.WatchedPRs[i].Source = ""
+			return true
+		}
+	}
+	return false
+}
+
 // AddPR adds a PR to the watched list if not already present.
 func (c *Config) AddPR(pr WatchedPR) bool {
 	for _, existing := range c.WatchedPRs {
-		if existing.Owner == pr.Owner && existing.Repo == pr.Repo && existing.Number == pr.Number {
+		if samePR(existing, pr.Owner, pr.Repo, pr.Number) {
 			return false
 		}
 	}
@@ -276,7 +357,7 @@ func (c *Config) AddPR(pr WatchedPR) bool {
 // RemovePR removes a PR from the watched list.
 func (c *Config) RemovePR(owner, repo string, number int) bool {
 	for i, pr := range c.WatchedPRs {
-		if pr.Owner == owner && pr.Repo == repo && pr.Number == number {
+		if samePR(pr, owner, repo, number) {
 			c.WatchedPRs = append(c.WatchedPRs[:i], c.WatchedPRs[i+1:]...)
 			return true
 		}
@@ -287,7 +368,7 @@ func (c *Config) RemovePR(owner, repo string, number int) bool {
 // UpdatePR updates the state of a watched PR.
 func (c *Config) UpdatePR(owner, repo string, number int, sha, state string) {
 	for i := range c.WatchedPRs {
-		if c.WatchedPRs[i].Owner == owner && c.WatchedPRs[i].Repo == repo && c.WatchedPRs[i].Number == number {
+		if samePR(c.WatchedPRs[i], owner, repo, number) {
 			c.WatchedPRs[i].LastKnownSHA = sha
 			c.WatchedPRs[i].LastKnownState = state
 			c.WatchedPRs[i].LastChecked = time.Now()

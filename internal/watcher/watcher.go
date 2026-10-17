@@ -34,7 +34,11 @@ type Watcher struct {
 	pausedUntil time.Time
 	// now is the clock; tests replace it.
 	now func() time.Time
+	// lastAutoWatch is when the auto-watch searches last ran.
+	lastAutoWatch time.Time
 }
+
+const noPRsMessage = "No PRs being watched. Add some with 'prw watch <PR_URL>', or 'prw watch --mine' to follow your open PRs."
 
 // defaultRateLimitPause is used when GitHub doesn't say when the limit resets.
 const defaultRateLimitPause = time.Minute
@@ -56,12 +60,19 @@ func (w *Watcher) Run(ctx context.Context) error {
 	defer ticker.Stop()
 
 	fmt.Printf("Starting watcher with %d second poll interval...\n", w.config.PollIntervalSeconds)
-	if len(w.config.WatchedPRs) == 0 {
-		fmt.Println("No PRs being watched. Add some with 'prw watch <PR_URL>'.")
+	if len(w.config.WatchedPRs) == 0 && len(w.config.AutoWatch) == 0 {
+		fmt.Println(noPRsMessage)
 		return nil
+	}
+	for _, source := range w.config.AutoWatch {
+		fmt.Printf("Auto-watching %s (refreshed every %s).\n", AutoWatchDescription[source], AutoWatchInterval)
 	}
 
 	// Check immediately on startup
+	if len(w.config.AutoWatch) > 0 {
+		w.syncAutoWatch()
+		w.reloadWatchedPRs()
+	}
 	w.checkAllPRs()
 
 	for {
@@ -74,6 +85,10 @@ func (w *Watcher) Run(ctx context.Context) error {
 				continue // rate limited; the pause message was printed when it started
 			}
 			w.reloadWatchedPRs()
+			if len(w.config.AutoWatch) > 0 && w.now().Sub(w.lastAutoWatch) >= AutoWatchInterval {
+				w.syncAutoWatch()
+				w.reloadWatchedPRs()
+			}
 			w.checkAllPRs()
 		}
 	}
@@ -91,13 +106,19 @@ func (w *Watcher) reloadWatchedPRs() {
 		fmt.Printf("Watch list changed: now watching %d PR(s).\n", len(fresh.WatchedPRs))
 	}
 	w.config.WatchedPRs = fresh.WatchedPRs
+	// `prw watch --mine` / `prw unwatch --mine` may have changed the searches too.
+	w.config.AutoWatch = fresh.AutoWatch
 }
 
 // RunOnce checks all watched PRs a single time and returns.
 func (w *Watcher) RunOnce(ctx context.Context) error {
 	fmt.Printf("Running one-time check with %d second poll interval...\n", w.config.PollIntervalSeconds)
+	if len(w.config.AutoWatch) > 0 {
+		w.syncAutoWatch()
+		w.reloadWatchedPRs()
+	}
 	if len(w.config.WatchedPRs) == 0 {
-		fmt.Println("No PRs being watched. Add some with 'prw watch <PR_URL>'.")
+		fmt.Println(noPRsMessage)
 		return nil
 	}
 	w.checkAllPRs()
