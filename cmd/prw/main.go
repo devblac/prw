@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"text/tabwriter"
 	"time"
@@ -52,6 +53,10 @@ func init() {
 	rootCmd.AddCommand(completionCmd)
 
 	listCmd.Flags().BoolVar(&listJSON, "json", false, "output watched PRs as JSON")
+	watchCmd.Flags().BoolVar(&watchMine, "mine", false, "automatically watch all your open PRs")
+	watchCmd.Flags().BoolVar(&watchReviewRequested, "review-requested", false, "automatically watch open PRs where your review is requested")
+	unwatchCmd.Flags().BoolVar(&unwatchMine, "mine", false, "stop auto-watching your open PRs and remove the PRs it added")
+	unwatchCmd.Flags().BoolVar(&unwatchReviewRequested, "review-requested", false, "stop auto-watching review requests and remove the PRs it added")
 	runCmd.Flags().StringVar(&notifyFilter, "on", "", "notify on: change, fail, or success")
 	runCmd.Flags().BoolVar(&runOnce, "once", false, "check watched PRs once and exit")
 	runCmd.Flags().BoolVar(&notifyNative, "notify-native", false, "enable native OS notifications (macOS/Linux/Windows)")
@@ -70,63 +75,187 @@ var errMissingToken = errors.New("missing GITHUB_TOKEN; run 'gh auth login', set
 // newGitHubClient allows tests to inject a custom GitHub client.
 var newGitHubClient = github.NewClient
 
+var (
+	watchMine              bool
+	watchReviewRequested   bool
+	unwatchMine            bool
+	unwatchReviewRequested bool
+)
+
+// autoWatchFlags returns the auto-watch sources selected by a command's flags.
+func autoWatchFlags(mine, reviewRequested bool) []string {
+	var sources []string
+	if mine {
+		sources = append(sources, config.AutoWatchMine)
+	}
+	if reviewRequested {
+		sources = append(sources, config.AutoWatchReviewRequested)
+	}
+	return sources
+}
+
+// prURLOrAutoWatchArgs requires a PR URL unless an auto-watch flag is set.
+func prURLOrAutoWatchArgs(flagsSet func() bool) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, args []string) error {
+		if flagsSet() {
+			return cobra.MaximumNArgs(1)(cmd, args)
+		}
+		if len(args) != 1 {
+			return fmt.Errorf("expected a PR URL (or --mine / --review-requested), got %d argument(s)", len(args))
+		}
+		return nil
+	}
+}
+
 var watchCmd = &cobra.Command{
-	Use:   "watch <PR_URL>",
-	Short: "Add a PR to the watch list",
-	Args:  cobra.ExactArgs(1),
+	Use:   "watch [PR_URL]",
+	Short: "Add a PR to the watch list, or follow your PRs automatically",
+	Long: `Add a pull request to the watch list.
+
+With --mine or --review-requested, prw instead follows a GitHub search and keeps
+the watch list up to date by itself: matching PRs are added right away, and
+'prw run' refreshes the search every 5 minutes.
+
+  --mine              your open PRs (author:@me), in every repository
+  --review-requested  open PRs where your review is requested (incl. your teams)
+
+PRs added by --review-requested are dropped again once your review is no longer
+requested. Merged or closed PRs are always dropped by 'prw run' after it notifies.
+Undo with 'prw unwatch --mine' / 'prw unwatch --review-requested'.`,
+	Example: `  prw watch https://github.com/owner/repo/pull/123
+  prw watch --mine
+  prw watch --mine --review-requested`,
+	Args: prURLOrAutoWatchArgs(func() bool { return watchMine || watchReviewRequested }),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		prURL := args[0]
-
-		owner, repo, number, err := github.ParsePRURL(prURL)
-		if err != nil {
-			return fmt.Errorf("invalid PR URL: %w", err)
-		}
-
-		cfg, err := config.Load()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
-
-		token := cfg.GetToken()
-		if token == "" {
-			return errMissingToken
-		}
-
-		// Try to fetch the PR to validate it exists and get title
-		client := newGitHubClient(token)
-		pr, err := client.GetPullRequest(owner, repo, number)
-		if err != nil {
-			return fmt.Errorf("failed to fetch PR: %w", err)
-		}
-
-		watchedPR := config.WatchedPR{
-			Owner:  owner,
-			Repo:   repo,
-			Number: number,
-			Title:  pr.Title,
-		}
-
-		// Re-read the config under a lock instead of saving the copy loaded before the
-		// network call: a running `prw run` may have updated the file in the meantime.
-		added := false
-		if err := config.Update(func(c *config.Config) error {
-			added = c.AddPR(watchedPR)
-			if !added {
-				return config.ErrNoChanges
+		if len(args) == 1 {
+			if err := watchSinglePR(args[0]); err != nil {
+				return err
 			}
-			return nil
-		}); err != nil {
-			return fmt.Errorf("failed to save config: %w", err)
 		}
-
-		if !added {
-			fmt.Printf("PR %s/%s#%d is already being watched.\n", owner, repo, number)
-			return nil
+		if sources := autoWatchFlags(watchMine, watchReviewRequested); len(sources) > 0 {
+			return enableAutoWatch(sources)
 		}
-
-		fmt.Printf("Now watching: %s/%s#%d - %s\n", owner, repo, number, pr.Title)
 		return nil
 	},
+}
+
+func watchSinglePR(prURL string) error {
+	owner, repo, number, err := github.ParsePRURL(prURL)
+	if err != nil {
+		return fmt.Errorf("invalid PR URL: %w", err)
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	token := cfg.GetToken()
+	if token == "" {
+		return errMissingToken
+	}
+
+	// Try to fetch the PR to validate it exists and get title
+	client := newGitHubClient(token)
+	pr, err := client.GetPullRequest(owner, repo, number)
+	if err != nil {
+		return fmt.Errorf("failed to fetch PR: %w", err)
+	}
+
+	watchedPR := config.WatchedPR{
+		Owner:  owner,
+		Repo:   repo,
+		Number: number,
+		Title:  pr.Title,
+	}
+
+	// Re-read the config under a lock instead of saving the copy loaded before the
+	// network call: a running `prw run` may have updated the file in the meantime.
+	added, claimed := false, false
+	if err := config.Update(func(c *config.Config) error {
+		added = c.AddPR(watchedPR)
+		if !added {
+			// Watching by hand a PR that auto-watch added keeps it even if that
+			// auto-watch is turned off later.
+			claimed = c.MarkManual(owner, repo, number)
+		}
+		if !added && !claimed {
+			return config.ErrNoChanges
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to save config: %w", err)
+	}
+
+	if !added {
+		fmt.Printf("PR %s/%s#%d is already being watched.\n", owner, repo, number)
+		return nil
+	}
+
+	fmt.Printf("Now watching: %s/%s#%d - %s\n", owner, repo, number, pr.Title)
+	return nil
+}
+
+func enableAutoWatch(sources []string) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+	token := cfg.GetToken()
+	if token == "" {
+		return errMissingToken
+	}
+
+	var enabled []string
+	if err := config.Update(func(c *config.Config) error {
+		for _, source := range sources {
+			if c.EnableAutoWatch(source) {
+				enabled = append(enabled, source)
+			}
+		}
+		if len(enabled) == 0 {
+			return config.ErrNoChanges
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to save config: %w", err)
+	}
+	for _, source := range sources {
+		state := "Now auto-watching"
+		if !contains(enabled, source) {
+			state = "Already auto-watching"
+		}
+		fmt.Printf("%s %s.\n", state, watcher.AutoWatchDescription[source])
+	}
+
+	// Run the searches now so the user sees the result immediately.
+	res, err := watcher.SyncAutoWatch(newGitHubClient(token), sources)
+	for _, warning := range res.Warnings {
+		fmt.Printf("Warning: %s\n", warning)
+	}
+	if err != nil {
+		return fmt.Errorf("auto-watch is enabled, but searching GitHub failed (prw run will retry): %w", err)
+	}
+	if len(res.Added) == 0 {
+		fmt.Println("No new PRs to add right now.")
+	}
+	for _, pr := range res.Added {
+		fmt.Printf("  + %s/%s#%d - %s\n", pr.Owner, pr.Repo, pr.Number, pr.Title)
+	}
+	for _, pr := range res.Removed {
+		fmt.Printf("  - %s/%s#%d (review no longer requested)\n", pr.Owner, pr.Repo, pr.Number)
+	}
+	fmt.Println("'prw run' keeps this list up to date (searches again every 5 minutes).")
+	return nil
+}
+
+func contains(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
 
 var listCmd = &cobra.Command{
@@ -142,14 +271,20 @@ var listCmd = &cobra.Command{
 			return outputJSONList(cfg.WatchedPRs)
 		}
 
+		for _, source := range cfg.AutoWatch {
+			fmt.Printf("Auto-watching %s (--%s).\n", watcher.AutoWatchDescription[source], source)
+		}
 		if len(cfg.WatchedPRs) == 0 {
 			fmt.Println("No PRs being watched.")
 			return nil
 		}
+		if len(cfg.AutoWatch) > 0 {
+			fmt.Println()
+		}
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "REPO\tPR\tSTATUS\tLAST CHECKED\tTITLE")
-		fmt.Fprintln(w, "----\t--\t------\t------------\t-----")
+		fmt.Fprintln(w, "REPO\tPR\tSTATUS\tLAST CHECKED\tADDED BY\tTITLE")
+		fmt.Fprintln(w, "----\t--\t------\t------------\t--------\t-----")
 
 		for _, pr := range cfg.WatchedPRs {
 			repo := fmt.Sprintf("%s/%s", pr.Owner, pr.Repo)
@@ -166,7 +301,11 @@ var listCmd = &cobra.Command{
 			if len(title) > 50 {
 				title = title[:47] + "..."
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", repo, prNum, status, lastChecked, title)
+			addedBy := "you"
+			if pr.Source != "" {
+				addedBy = "--" + pr.Source
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", repo, prNum, status, lastChecked, addedBy, title)
 		}
 
 		w.Flush()
@@ -175,36 +314,89 @@ var listCmd = &cobra.Command{
 }
 
 var unwatchCmd = &cobra.Command{
-	Use:   "unwatch <PR_URL>",
-	Short: "Remove a PR from the watch list",
-	Args:  cobra.ExactArgs(1),
+	Use:   "unwatch [PR_URL]",
+	Short: "Remove a PR from the watch list, or stop following your PRs",
+	Long: `Remove a pull request from the watch list.
+
+With --mine or --review-requested, stop that auto-watch and remove the PRs it
+added. PRs you added by hand with 'prw watch <PR_URL>' are kept.
+
+Unwatching a single PR that auto-watch added only lasts until the next search
+finds it again; use --mine / --review-requested to stop following those PRs.`,
+	Example: `  prw unwatch https://github.com/owner/repo/pull/123
+  prw unwatch --review-requested`,
+	Args: prURLOrAutoWatchArgs(func() bool { return unwatchMine || unwatchReviewRequested }),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		prURL := args[0]
-
-		owner, repo, number, err := github.ParsePRURL(prURL)
-		if err != nil {
-			return fmt.Errorf("invalid PR URL: %w", err)
-		}
-
-		removed := false
-		if err := config.Update(func(c *config.Config) error {
-			removed = c.RemovePR(owner, repo, number)
-			if !removed {
-				return config.ErrNoChanges
+		if len(args) == 1 {
+			if err := unwatchSinglePR(args[0]); err != nil {
+				return err
 			}
-			return nil
-		}); err != nil {
-			return fmt.Errorf("failed to update config: %w", err)
 		}
-
-		if !removed {
-			fmt.Printf("PR %s/%s#%d is not being watched.\n", owner, repo, number)
-			return nil
+		if sources := autoWatchFlags(unwatchMine, unwatchReviewRequested); len(sources) > 0 {
+			return disableAutoWatch(sources)
 		}
-
-		fmt.Printf("Stopped watching: %s/%s#%d\n", owner, repo, number)
 		return nil
 	},
+}
+
+func unwatchSinglePR(prURL string) error {
+	owner, repo, number, err := github.ParsePRURL(prURL)
+	if err != nil {
+		return fmt.Errorf("invalid PR URL: %w", err)
+	}
+
+	removed := false
+	if err := config.Update(func(c *config.Config) error {
+		removed = c.RemovePR(owner, repo, number)
+		if !removed {
+			return config.ErrNoChanges
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to update config: %w", err)
+	}
+
+	if !removed {
+		fmt.Printf("PR %s/%s#%d is not being watched.\n", owner, repo, number)
+		return nil
+	}
+
+	fmt.Printf("Stopped watching: %s/%s#%d\n", owner, repo, number)
+	return nil
+}
+
+func disableAutoWatch(sources []string) error {
+	type outcome struct {
+		wasOn   bool
+		removed []config.WatchedPR
+	}
+	results := map[string]outcome{}
+	if err := config.Update(func(c *config.Config) error {
+		changed := false
+		for _, source := range sources {
+			wasOn, removed := c.DisableAutoWatch(source)
+			results[source] = outcome{wasOn, removed}
+			if wasOn || len(removed) > 0 {
+				changed = true
+			}
+		}
+		if !changed {
+			return config.ErrNoChanges
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to update config: %w", err)
+	}
+
+	for _, source := range sources {
+		r := results[source]
+		if !r.wasOn && len(r.removed) == 0 {
+			fmt.Printf("Was not auto-watching %s.\n", watcher.AutoWatchDescription[source])
+			continue
+		}
+		fmt.Printf("Stopped auto-watching %s; removed %d PR(s) it had added.\n", watcher.AutoWatchDescription[source], len(r.removed))
+	}
+	return nil
 }
 
 var runCmd = &cobra.Command{
@@ -295,6 +487,12 @@ var configShowCmd = &cobra.Command{
 
 		_, tokenSource := cfg.ResolveToken()
 		fmt.Printf("github_token: %s\n", tokenSource)
+
+		autoWatch := "off"
+		if len(cfg.AutoWatch) > 0 {
+			autoWatch = strings.Join(cfg.AutoWatch, ", ")
+		}
+		fmt.Printf("auto_watch: %s\n", autoWatch)
 
 		fmt.Printf("\nWatched PRs: %d\n", len(cfg.WatchedPRs))
 
@@ -424,6 +622,7 @@ type listPROutput struct {
 	Status      string     `json:"status"`
 	LastChecked *time.Time `json:"last_checked,omitempty"`
 	Title       string     `json:"title,omitempty"`
+	Source      string     `json:"source,omitempty"` // auto-watch source that added it; empty if added by hand
 }
 
 func outputJSONList(prs []config.WatchedPR) error {
@@ -447,6 +646,7 @@ func outputJSONList(prs []config.WatchedPR) error {
 			Status:      status,
 			LastChecked: lastChecked,
 			Title:       pr.Title,
+			Source:      pr.Source,
 		})
 	}
 

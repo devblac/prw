@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `prw run` now notifies once (`merged` or `closed`) and automatically stops watching a PR once it is merged or closed, instead of polling it forever. This notification always fires, regardless of `--on`/`notification_filter`.
 
 ### Added
+- Auto-watch: `prw watch --mine` follows all your open PRs and `prw watch --review-requested` the PRs where your review is requested, across every repository. Matches are added immediately; `prw run` refreshes the searches every 5 minutes. Review-request PRs are dropped when the request goes away; PRs watched by hand are never touched by it. `prw unwatch --mine` / `--review-requested` turns it off and removes the PRs it added. `prw list` gains an `ADDED BY` column (and `source` in `--json`); `prw config show` shows `auto_watch`.
 - `prw mcp`: a Model Context Protocol server over stdio for AI coding agents, with tools `get_ci_status`, `wait_for_ci` (progress notifications, cancellation, fail-fast), `list_watched`, `watch_pr` and `unwatch_pr`. Implemented without new dependencies (the official Go SDK needs Go 1.25).
 - Conditional requests (ETags): repeated polls of unchanged resources are answered with `304 Not Modified`, which doesn't count against the authenticated rate limit. Measured against the real API: after the first poll, 5 further polls of a PR (15 requests) consumed 0 quota. Previously each watched PR cost 3 requests per poll (~540/hour at the default 20s interval), so about 9 PRs exhausted the 5,000/hour limit.
 - Rate-limit handling: 403/429 rate-limit responses are told apart from missing-permission 403s. `prw run` stops the current round and pauses until the reset time; `prw wait` waits for the reset (still bounded by `--timeout`) instead of giving up.
@@ -19,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Integration tests against the real GitHub API (`make integration`, build tag `integration`), run nightly by a new `Integration` workflow. They fail against the old status-only logic.
 
 ### Fixed
+- PR owner and repository names are compared case-insensitively (as on GitHub), so `DevBlac/PRW#5` and `devblac/prw#5` are no longer two separate watch-list entries.
 - Requests without a token no longer send an empty `Authorization: Bearer ` header, which GitHub rejects with 401 even for public repositories.
 - `MultiNotifier` (used whenever more than one notification channel is enabled) stopped at the first failing notifier. A down webhook silently suppressed the console and native notifications that were supposed to run after it; now every notifier always runs and their errors are combined.
 - The README's "Prebuilt binaries" install snippet was pinned to `v0.2.0`, two releases behind the current `v0.3.0`. It now resolves the actual latest release tag first.
