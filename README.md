@@ -238,6 +238,7 @@ prw wait "$PR_URL" --timeout 15m --json
 | `1` | CI failed (`failure` or `error`) |
 | `2` | Timed out (`--timeout`, default 30m) while CI was still pending |
 | `3` | Other error: invalid URL, API error, missing token, PR closed without merging |
+| `4` | The PR has **no CI**: no checks or statuses were reported within 3 minutes of its last update (see below) |
 | `130` | Interrupted (Ctrl+C) |
 
 It fails fast — as soon as one check fails it exits `1` with the failed checks and their links, without waiting for the rest. If someone pushes to the PR meanwhile, it follows the new head commit. Transient errors (network, 5xx, rate limits) are retried up to 3 times in a row. Polls every 15s by default (`--interval`).
@@ -260,7 +261,9 @@ With `--json`, stdout is a single object:
 }
 ```
 
-`state` is one of `success`, `failure`, `error`, `pending` (with `timed_out` or `interrupted` set), `merged`, or `closed`.
+`state` is one of `success`, `failure`, `error`, `pending` (with `timed_out` or `interrupted` set), `merged`, `closed`, or `no_ci`.
+
+**PRs without CI.** Some PRs never get a single check — the repository has no CI, or none runs for the PR's base branch (for example a stacked PR whose base isn't `main`). Right after a push, though, every PR briefly has zero checks while CI registers them. So prw only concludes `no_ci` once the PR has had no checks or statuses at all **and** hasn't been updated for 3 minutes; until then it reports `pending`. `no_ci` exits with `4`, not `0`, so `prw wait && deploy` doesn't deploy a PR that no CI looked at. `prw run` shows `no_ci` in `prw list` but doesn't send a notification for it, and notifies normally if CI shows up later (e.g. after the PR is retargeted).
 
 ## Using prw from AI agents: `prw mcp`
 
@@ -286,7 +289,7 @@ Tools:
 
 | Tool | What it does |
 |------|--------------|
-| `get_ci_status` | Current state of a PR (`success`, `failure`, `error`, `pending`, `merged`, `closed`), check counts, failed checks with links. Returns immediately. |
+| `get_ci_status` | Current state of a PR (`success`, `failure`, `error`, `pending`, `merged`, `closed`, `no_ci`), check counts, failed checks with links. Returns immediately. |
 | `wait_for_ci` | Blocks until CI finishes (`timeout_seconds` default 600, max 3600). Fails fast on the first failed check, follows new pushes, sends progress notifications. On timeout it returns `pending` with `timed_out: true` so the agent can call it again. |
 | `list_watched` | PRs on the local watch list with their last known state. |
 | `watch_pr` / `unwatch_pr` | Add or remove a PR from the watch list (a running `prw run` picks it up). |

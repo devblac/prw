@@ -219,12 +219,15 @@ func (w *Watcher) checkPR(pr *config.WatchedPR) (closed bool, err error) {
 	if err != nil {
 		return false, fmt.Errorf("failed to fetch status: %w", err)
 	}
+	github.ApplyNoCI(ci, ghPR.UpdatedAt, w.now())
 
 	currentState := ci.State
 	previousState := github.NormalizeState(pr.LastKnownState)
 
-	// Check if status changed
-	if previousState != "" && previousState != currentState && shouldNotify(w.config.NotificationFilter, currentState) {
+	// Check if status changed. Finding out that a PR has no CI is not a CI result, so
+	// it isn't announced (it would otherwise ping once for every such PR).
+	if previousState != "" && previousState != currentState && currentState != github.StateNoCI &&
+		shouldNotify(w.config.NotificationFilter, currentState) {
 		event := &notify.StatusChangeEvent{
 			Owner:         pr.Owner,
 			Repo:          pr.Repo,

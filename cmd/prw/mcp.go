@@ -43,7 +43,7 @@ const (
 
 	mcpInstructions = `prw reports the CI status of GitHub pull requests, aggregating GitHub Actions check runs and legacy commit statuses.
 Use get_ci_status for a one-off check, and wait_for_ci after pushing to a PR to block until CI finishes (it fails fast and lists failed checks with links).
-States: success, failure, error, pending, merged, closed.`
+States: success, failure, error, pending, merged, closed, and no_ci (the PR has no checks or statuses at all; waiting longer will not help).`
 )
 
 func init() {
@@ -428,7 +428,7 @@ var mcpTools = []map[string]interface{}{
 	{
 		"name":        "get_ci_status",
 		"title":       "Get PR CI status",
-		"description": "Get the current CI status of a GitHub pull request: overall state (success, failure, error, pending, merged, closed), check counts, and failed checks with links. Aggregates GitHub Actions check runs and legacy commit statuses. Returns immediately.",
+		"description": "Get the current CI status of a GitHub pull request: overall state (success, failure, error, pending, merged, closed, or no_ci when the PR has no checks at all), check counts, and failed checks with links. Aggregates GitHub Actions check runs and legacy commit statuses. Returns immediately.",
 		"inputSchema": map[string]interface{}{
 			"type":                 "object",
 			"properties":           map[string]interface{}{"pr_url": prURLSchema},
@@ -440,7 +440,7 @@ var mcpTools = []map[string]interface{}{
 	{
 		"name":        "wait_for_ci",
 		"title":       "Wait for PR CI",
-		"description": "Block until a GitHub pull request's CI finishes, then return the result. Fails fast: returns as soon as any check fails, with the failed checks and links. Follows new pushes to the PR. If the timeout is reached first, returns state 'pending' with timed_out=true (call again to keep waiting). A merge while waiting returns state 'merged'.",
+		"description": "Block until a GitHub pull request's CI finishes, then return the result. Fails fast: returns as soon as any check fails, with the failed checks and links. Follows new pushes to the PR. If the timeout is reached first, returns state 'pending' with timed_out=true (call again to keep waiting). A merge while waiting returns state 'merged'; a PR with no checks or statuses at all returns 'no_ci' instead of waiting until the timeout.",
 		"inputSchema": map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -545,6 +545,8 @@ func ciSummary(r *waitResult) string {
 		return fmt.Sprintf("CI of %s is pending: %s.", pr, pendingSummary(r))
 	case r.State == "success":
 		return fmt.Sprintf("CI of %s passed (%d check(s)).", pr, r.TotalChecks)
+	case r.State == github.StateNoCI:
+		return fmt.Sprintf("%s has no CI: no checks or statuses were reported within %s of its last update, so nothing verified it.", pr, github.NoCIGracePeriod)
 	}
 	names := make([]string, len(r.FailedChecks))
 	for i, c := range r.FailedChecks {

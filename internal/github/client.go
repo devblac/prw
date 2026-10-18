@@ -108,6 +108,31 @@ type PullRequest struct {
 	Head   struct {
 		SHA string `json:"sha"`
 	} `json:"head"`
+	// UpdatedAt changes on every push (and on comments, labels, ...), so it is an
+	// upper bound for how recently the head commit was pushed.
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// StateNoCI is reported instead of "pending" for a PR that has no checks or
+// statuses at all and wasn't updated for NoCIGracePeriod, i.e. one whose repository
+// (or base branch) runs no CI for it.
+const StateNoCI = "no_ci"
+
+// NoCIGracePeriod is how long after the last update of a PR prw keeps waiting for
+// CI to report its first check before concluding the PR has none. GitHub Actions
+// usually registers checks within seconds; external CI can take longer.
+const NoCIGracePeriod = 3 * time.Minute
+
+// ApplyNoCI turns a "pending" status with no checks or statuses at all into StateNoCI
+// once the PR has gone NoCIGracePeriod without updates. updatedAt is the PR's
+// UpdatedAt; when it's unknown (zero), the status is left as pending.
+func ApplyNoCI(ci *CIStatus, updatedAt, now time.Time) {
+	if ci.State != "pending" || ci.Total != 0 || updatedAt.IsZero() {
+		return
+	}
+	if now.Sub(updatedAt) >= NoCIGracePeriod {
+		ci.State = StateNoCI
+	}
 }
 
 // IsClosed reports whether the PR is closed, merged or not (GitHub reports both as
