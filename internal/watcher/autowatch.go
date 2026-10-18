@@ -26,9 +26,11 @@ var AutoWatchDescription = map[string]string{
 	config.AutoWatchReviewRequested: "PRs where your review is requested",
 }
 
-// Searcher runs GitHub pull request searches.
+// Searcher runs GitHub pull request searches. GetPullRequest tells a review request
+// that was withdrawn apart from a PR that was merged or closed.
 type Searcher interface {
 	SearchPullRequests(query string) (*github.SearchResult, error)
+	GetPullRequest(owner, repo string, number int) (*github.PullRequest, error)
 }
 
 // SyncResult reports what SyncAutoWatch changed.
@@ -42,9 +44,9 @@ type SyncResult struct {
 // SyncAutoWatch runs the search of every source in sources and updates the watch list:
 // matching PRs that aren't watched yet are added (tagged with their source), and PRs
 // added for "review-requested" that no longer match are removed, since the request
-// was withdrawn or answered. PRs added for "mine" are not removed when they stop
-// matching: that means they were merged or closed, and `prw run` should still notify
-// about it before dropping them. PRs watched by hand are never touched.
+// was withdrawn or answered. PRs that stopped matching because they were merged or
+// closed are kept instead (for "mine" that's always the reason), so that `prw run`
+// still notifies about it before dropping them. PRs watched by hand are never touched.
 //
 // It returns an error only if every search failed; other problems are Warnings.
 func SyncAutoWatch(client Searcher, sources []string) (*SyncResult, error) {
@@ -73,6 +75,7 @@ func SyncAutoWatch(client Searcher, sources []string) (*SyncResult, error) {
 	if len(found) == 0 && lastErr != nil {
 		return result, lastErr
 	}
+	closed := closedReviewRequests(client, found)
 
 	err := config.Update(func(c *config.Config) error {
 		changed := false
@@ -97,7 +100,8 @@ func SyncAutoWatch(client Searcher, sources []string) (*SyncResult, error) {
 			}
 			kept := c.WatchedPRs[:0]
 			for _, pr := range c.WatchedPRs {
-				if pr.Source == source && !matches[prKey(pr.Owner, pr.Repo, pr.Number)] {
+				key := prKey(pr.Owner, pr.Repo, pr.Number)
+				if pr.Source == source && !matches[key] && !closed[key] {
 					result.Removed = append(result.Removed, pr)
 					changed = true
 					continue
@@ -115,6 +119,36 @@ func SyncAutoWatch(client Searcher, sources []string) (*SyncResult, error) {
 		return result, fmt.Errorf("failed to update watch list: %w", err)
 	}
 	return result, nil
+}
+
+// closedReviewRequests finds the review-request PRs that no longer match their search
+// because they were merged or closed: the search only returns open PRs, so they look
+// just like withdrawn requests. It runs before the config is locked, as it makes API
+// calls. A PR whose lookup fails is not reported, i.e. it's removed as before.
+func closedReviewRequests(client Searcher, found map[string]*github.SearchResult) map[string]bool {
+	res, ok := found[config.AutoWatchReviewRequested]
+	if !ok || res.Incomplete {
+		return nil // nothing will be removed
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return nil
+	}
+	matches := make(map[string]bool, len(res.PRs))
+	for _, pr := range res.PRs {
+		matches[prKey(pr.Owner, pr.Repo, pr.Number)] = true
+	}
+	closed := map[string]bool{}
+	for _, pr := range cfg.WatchedPRs {
+		key := prKey(pr.Owner, pr.Repo, pr.Number)
+		if pr.Source != config.AutoWatchReviewRequested || matches[key] {
+			continue
+		}
+		if ghPR, err := client.GetPullRequest(pr.Owner, pr.Repo, pr.Number); err == nil && ghPR.IsClosed() {
+			closed[key] = true
+		}
+	}
+	return closed
 }
 
 func prKey(owner, repo string, number int) string {

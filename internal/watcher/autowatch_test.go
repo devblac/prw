@@ -301,3 +301,31 @@ func TestRun_PicksUpAutoWatchEnabledWhileRunning(t *testing.T) {
 		t.Errorf("watch list = %s", got)
 	}
 }
+
+func TestRunOnce_NotifiesReviewRequestMergedWhileStopped(t *testing.T) {
+	// The PR was merged while prw wasn't running: the is:open search no longer returns
+	// it, which must not be mistaken for a withdrawn review request.
+	useTempConfig(t)
+	cfg := &config.Config{
+		AutoWatch: []string{config.AutoWatchReviewRequested},
+		WatchedPRs: []config.WatchedPR{
+			{Owner: "owner", Repo: "repo", Number: 20, Source: config.AutoWatchReviewRequested, LastKnownState: "success"},
+		},
+	}
+	saveConfig(t, cfg)
+	merged := newPR(20, "sha20")
+	merged.State, merged.Merged = "closed", true
+	s := &fakeSearcher{results: map[string]*github.SearchResult{config.AutoWatchReviewRequested: found()}}
+	s.prs = map[string]*github.PullRequest{"owner/repo/20": merged}
+	notifier := &mockNotifier{}
+
+	if err := New(s, cfg, notifier).RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(notifier.events) != 1 || notifier.events[0].CurrentState != "merged" {
+		t.Errorf("events = %+v, want one merged notification", notifier.events)
+	}
+	if got := watchList(t); got != "" {
+		t.Errorf("watch list = %q, want the merged PR dropped after notifying", got)
+	}
+}
