@@ -20,6 +20,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Integration tests against the real GitHub API (`make integration`, build tag `integration`), run nightly by a new `Integration` workflow. They fail against the old status-only logic.
 
 ### Fixed
+- A check whose workflow ran more than once for the same commit (e.g. an older run cancelled by `concurrency: cancel-in-progress`) kept the PR failed even after the newer run passed. Only the newest run of each check counts now, like on GitHub.
+- `prw wait` and the MCP `wait_for_ci` tool could return the final result of the previous commit when a new one was pushed during a poll. The PR head is now re-checked before returning, and waiting continues on the new commit.
+- `prw wait --timeout`, the MCP `timeout_seconds` / cancellation and Ctrl-C now cancel the GitHub requests in flight; on a stalled network they used to be noticed only after the whole poll finished (up to 15 seconds per request). `prw run` also stops at once on Ctrl-C.
+- PRs auto-watched with `--review-requested` that were merged or closed while `prw` wasn't running are no longer dropped as withdrawn review requests: they get their final `merged`/`closed` notification first.
+- A `no_ci` PR no longer flaps to `pending` (with a "no_ci → pending" notification) when someone comments or changes a label; it stays `no_ci` until an actual check or status appears.
+- The ETag cache no longer clears itself entirely when full, which made almost every request unconditional when watching many PRs; it evicts one entry instead.
+- GovSlack webhook URLs (`hooks.slack-gov.com`) are detected as Slack.
 - PRs without any CI are reported as `no_ci` instead of `pending` forever. Previously `prw wait` and the MCP `wait_for_ci` tool blocked until their timeout on such PRs (repositories without CI, or stacked PRs whose base branch runs none). A PR is `no_ci` once it has no checks or statuses at all and hasn't been updated for 3 minutes, so CI that is still registering after a push isn't mistaken for missing CI. `prw wait` exits `4` for it; `prw run` doesn't notify about it.
 - PR owner and repository names are compared case-insensitively (as on GitHub), so `DevBlac/PRW#5` and `devblac/prw#5` are no longer two separate watch-list entries.
 - Requests without a token no longer send an empty `Authorization: Bearer ` header, which GitHub rejects with 401 even for public repositories.
