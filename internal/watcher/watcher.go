@@ -223,6 +223,11 @@ func (w *Watcher) checkPR(pr *config.WatchedPR) (closed bool, err error) {
 
 	currentState := ci.State
 	previousState := github.NormalizeState(pr.LastKnownState)
+	if previousState == github.StateNoCI && currentState == "pending" && ci.Total == 0 {
+		// Comments and label changes also bump updated_at, which restarts the grace
+		// period; until an actual check or status shows up, the PR still has no CI.
+		currentState = github.StateNoCI
+	}
 
 	// Check if status changed. Finding out that a PR has no CI is not a CI result, so
 	// it isn't announced (it would otherwise ping once for every such PR).
