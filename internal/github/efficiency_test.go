@@ -280,3 +280,45 @@ func TestClient_ConcurrentRequestsAreSafe(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestStoreCache_FullCacheKeepsOtherEntries(t *testing.T) {
+	c := NewClient("")
+	for i := 0; i < maxCacheEntries; i++ {
+		c.storeCache(fmt.Sprintf("/p/%d", i), cachedResponse{etag: "e"})
+	}
+	c.storeCache("/p/0", cachedResponse{etag: "refreshed"}) // a changed resource
+	if n := len(c.cache); n != maxCacheEntries || c.cache["/p/0"].etag != "refreshed" {
+		t.Errorf("refreshing a cached path must not evict anything: %d entries", n)
+	}
+	c.storeCache("/new", cachedResponse{etag: "e"})
+	if n := len(c.cache); n != maxCacheEntries {
+		t.Errorf("a new path must evict exactly one entry, cache has %d", n)
+	}
+}
+
+func TestStoreCache_PollingMorePathsThanFitStillHits(t *testing.T) {
+	// e.g. ~200 watched PRs, 3 paths each, polled in rotation.
+	c := NewClient("")
+	paths := maxCacheEntries + maxCacheEntries/4
+	hits, lookups := 0, 0
+	for round := 0; round < 20; round++ {
+		for i := 0; i < paths; i++ {
+			path := fmt.Sprintf("/p/%d", i)
+			if _, ok := c.cache[path]; ok {
+				if round > 0 {
+					hits++
+				}
+			} else {
+				c.storeCache(path, cachedResponse{etag: "e"})
+			}
+			if round > 0 {
+				lookups++
+			}
+		}
+	}
+	rate := float64(hits) / float64(lookups)
+	t.Logf("hit rate %.0f%% polling %d paths through a %d-entry cache", rate*100, paths, maxCacheEntries)
+	if rate < 0.5 {
+		t.Errorf("hit rate %.0f%%; overflowing the cache must not make every request unconditional", rate*100)
+	}
+}

@@ -506,8 +506,18 @@ func (c *Client) getJSON(ctx context.Context, path string, v interface{}) error 
 func (c *Client) storeCache(path string, entry cachedResponse) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.cache == nil || len(c.cache) >= maxCacheEntries {
+	if c.cache == nil {
 		c.cache = make(map[string]cachedResponse)
+	}
+	if _, exists := c.cache[path]; !exists && len(c.cache) >= maxCacheEntries {
+		// Make room by evicting one entry at random (map iteration order is random).
+		// Clearing the whole cache, or LRU, would make every request unconditional
+		// once more paths are polled in rotation than fit: polling cycles through
+		// the same paths, which is LRU's worst case. Random eviction keeps most hits.
+		for victim := range c.cache {
+			delete(c.cache, victim)
+			break
+		}
 	}
 	c.cache[path] = entry
 }
