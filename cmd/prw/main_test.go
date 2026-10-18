@@ -1180,6 +1180,8 @@ func TestRunCmd_Once(t *testing.T) {
 		switch {
 		case strings.Contains(r.URL.Path, "/pulls/123"):
 			fmt.Fprintf(w, `{"number":123,"title":"RunOnce PR","head":{"sha":"abc123"}}`)
+		case strings.Contains(r.URL.Path, "/check-runs"):
+			fmt.Fprint(w, `{"total_count":0,"check_runs":[]}`)
 		case strings.Contains(r.URL.Path, "/commits/abc123/status"):
 			fmt.Fprintf(w, `{"state":"success","sha":"abc123"}`)
 		default:
@@ -1394,6 +1396,8 @@ func TestBroadcastCmd_SuccessWebhook(t *testing.T) {
 		switch {
 		case strings.Contains(r.URL.Path, "/pulls/123"):
 			fmt.Fprintf(w, `{"number":123,"title":"Test PR","head":{"sha":"abc123"}}`)
+		case strings.Contains(r.URL.Path, "/check-runs"):
+			fmt.Fprint(w, `{"total_count":0,"check_runs":[]}`)
 		case strings.Contains(r.URL.Path, "/commits/abc123/status"):
 			fmt.Fprintf(w, `{"state":"success","sha":"abc123"}`)
 		default:
@@ -1474,6 +1478,8 @@ func TestBroadcastCmd_FilterFailing(t *testing.T) {
 			fmt.Fprintf(w, `{"number":1,"title":"PR1","head":{"sha":"sha1"}}`)
 		case strings.Contains(r.URL.Path, "/pulls/2"):
 			fmt.Fprintf(w, `{"number":2,"title":"PR2","head":{"sha":"sha2"}}`)
+		case strings.Contains(r.URL.Path, "/check-runs"):
+			fmt.Fprint(w, `{"total_count":0,"check_runs":[]}`)
 		case strings.Contains(r.URL.Path, "/commits/sha1/status"):
 			fmt.Fprintf(w, `{"state":"success","sha":"sha1"}`)
 		case strings.Contains(r.URL.Path, "/commits/sha2/status"):
@@ -1538,6 +1544,8 @@ func TestBroadcastCmd_DryRun(t *testing.T) {
 		switch {
 		case strings.Contains(r.URL.Path, "/pulls/1"):
 			fmt.Fprintf(w, `{"number":1,"title":"PR1","head":{"sha":"sha1"}}`)
+		case strings.Contains(r.URL.Path, "/check-runs"):
+			fmt.Fprint(w, `{"total_count":0,"check_runs":[]}`)
 		case strings.Contains(r.URL.Path, "/commits/sha1/status"):
 			fmt.Fprintf(w, `{"state":"success","sha":"sha1"}`)
 		default:

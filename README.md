@@ -108,7 +108,9 @@ make install
 
 ### 1. Set up your GitHub token
 
-`prw` needs a GitHub Personal Access Token to query PR status. The token only requires `repo` scope (or `public_repo` for public repos only).
+`prw` needs a GitHub Personal Access Token to query PR status. A classic token only requires `repo` scope (or `public_repo` for public repos only). Fine-grained tokens need read access to **Pull requests**, **Commit statuses**, and **Checks**.
+
+`prw` combines GitHub Actions check runs with legacy commit statuses (Jenkins, CircleCI, etc.), so it works regardless of which CI you use.
 
 Create a token at: https://github.com/settings/tokens
 

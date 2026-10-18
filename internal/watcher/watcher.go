@@ -14,6 +14,7 @@ import (
 type GitHubClient interface {
 	GetPullRequest(owner, repo string, number int) (*github.PullRequest, error)
 	GetCombinedStatus(owner, repo, ref string) (*github.CombinedStatus, error)
+	GetCheckRuns(owner, repo, ref string) ([]github.CheckRun, error)
 }
 
 // ConfigStore defines the interface for config persistence.
@@ -98,13 +99,13 @@ func (w *Watcher) checkPR(pr *config.WatchedPR) error {
 
 	currentSHA := ghPR.Head.SHA
 
-	// Fetch combined status for the head commit
-	status, err := w.client.GetCombinedStatus(pr.Owner, pr.Repo, currentSHA)
+	// Aggregate commit statuses and check runs (GitHub Actions) for the head commit
+	ci, err := github.FetchCIStatus(w.client, pr.Owner, pr.Repo, currentSHA)
 	if err != nil {
 		return fmt.Errorf("failed to fetch status: %w", err)
 	}
 
-	currentState := github.NormalizeState(status.State)
+	currentState := ci.State
 	previousState := github.NormalizeState(pr.LastKnownState)
 
 	// Refresh title when available
@@ -122,6 +123,7 @@ func (w *Watcher) checkPR(pr *config.WatchedPR) error {
 			PreviousState: previousState,
 			CurrentState:  currentState,
 			SHA:           currentSHA,
+			FailedChecks:  ci.FailedChecks,
 			Timestamp:     time.Now(),
 		}
 

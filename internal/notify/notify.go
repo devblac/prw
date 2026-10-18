@@ -21,6 +21,7 @@ type StatusChangeEvent struct {
 	PreviousState string
 	CurrentState  string
 	SHA           string
+	FailedChecks  []github.FailedCheck
 	Timestamp     time.Time
 }
 
@@ -67,6 +68,16 @@ func (c *ConsoleNotifier) Notify(event *StatusChangeEvent) error {
 		fmt.Printf("   Title: %s\n", event.Title)
 	}
 	fmt.Printf("   Status: %s → %s\n", event.PreviousState, event.CurrentState)
+	if len(event.FailedChecks) > 0 {
+		fmt.Printf("   Failed checks:\n")
+		for _, check := range event.FailedChecks {
+			if check.URL != "" {
+				fmt.Printf("     ❌ %s (%s)\n", check.Name, check.URL)
+			} else {
+				fmt.Printf("     ❌ %s\n", check.Name)
+			}
+		}
+	}
 	fmt.Printf("   Link: %s\n", prURL)
 	fmt.Printf("   Time: %s\n\n", event.Timestamp.Format(time.RFC3339))
 
@@ -89,16 +100,17 @@ func NewWebhookNotifier(url string) *WebhookNotifier {
 
 // WebhookPayload is the JSON structure sent to the webhook.
 type WebhookPayload struct {
-	Type          string    `json:"type"`
-	Owner         string    `json:"owner"`
-	Repo          string    `json:"repo"`
-	PRNumber      int       `json:"pr_number"`
-	Title         string    `json:"title,omitempty"`
-	PreviousState string    `json:"previous_state"`
-	CurrentState  string    `json:"current_state"`
-	SHA           string    `json:"sha"`
-	URL           string    `json:"url"`
-	Timestamp     time.Time `json:"timestamp"`
+	Type          string               `json:"type"`
+	Owner         string               `json:"owner"`
+	Repo          string               `json:"repo"`
+	PRNumber      int                  `json:"pr_number"`
+	Title         string               `json:"title,omitempty"`
+	PreviousState string               `json:"previous_state"`
+	CurrentState  string               `json:"current_state"`
+	SHA           string               `json:"sha"`
+	FailedChecks  []github.FailedCheck `json:"failed_checks,omitempty"`
+	URL           string               `json:"url"`
+	Timestamp     time.Time            `json:"timestamp"`
 }
 
 // Notify sends the status change to the webhook.
@@ -116,6 +128,7 @@ func (w *WebhookNotifier) Notify(event *StatusChangeEvent) error {
 		PreviousState: event.PreviousState,
 		CurrentState:  event.CurrentState,
 		SHA:           event.SHA,
+		FailedChecks:  event.FailedChecks,
 		URL:           github.FormatPRURL(event.Owner, event.Repo, event.Number),
 		Timestamp:     event.Timestamp,
 	}
