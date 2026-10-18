@@ -209,7 +209,7 @@ Press Ctrl+C to stop.`,
 		// Build notifier chain
 		notifiers := []notify.Notifier{notify.NewConsoleNotifier()}
 		if cfg.WebhookURL != "" {
-			notifiers = append(notifiers, notify.NewWebhookNotifier(cfg.WebhookURL))
+			notifiers = append(notifiers, notify.NewWebhookNotifierWithFormat(cfg.WebhookURL, cfg.WebhookFormat))
 		}
 		// Add native notifications if enabled via flag or config
 		if notifyNative || cfg.NotificationNative {
@@ -269,6 +269,7 @@ var configShowCmd = &cobra.Command{
 		fmt.Printf("Config file: %s\n\n", path)
 		fmt.Printf("poll_interval_seconds: %d\n", cfg.PollIntervalSeconds)
 		fmt.Printf("webhook_url: %s\n", cfg.WebhookURL)
+		fmt.Printf("webhook_format: %s\n", notify.NormalizeWebhookFormat(cfg.WebhookFormat))
 		fmt.Printf("notification_filter: %s\n", cfg.NotificationFilter)
 		fmt.Printf("notification_native: %v\n", cfg.NotificationNative)
 
@@ -293,6 +294,7 @@ var configSetCmd = &cobra.Command{
 Supported keys:
   - poll_interval_seconds: polling interval in seconds (default: 20)
   - webhook_url: URL to POST notifications to
+  - webhook_format: auto, slack, discord, or generic (default: auto, detected from the URL)
   - github_token: GitHub personal access token
   - notification_filter: change, fail, or success
   - notification_native: enable native OS notifications (true/false)`,
@@ -315,6 +317,12 @@ Supported keys:
 			cfg.PollIntervalSeconds = interval
 		case "webhook_url":
 			cfg.WebhookURL = value
+		case "webhook_format":
+			format := notify.NormalizeWebhookFormat(value)
+			if !notify.IsValidWebhookFormat(format) {
+				return fmt.Errorf("webhook_format must be one of: auto, slack, discord, generic")
+			}
+			cfg.WebhookFormat = format
 		case "github_token":
 			cfg.GitHubToken = value
 		case "notification_filter":
@@ -359,6 +367,8 @@ var configUnsetCmd = &cobra.Command{
 			cfg.PollIntervalSeconds = 20 // reset to default
 		case "webhook_url":
 			cfg.WebhookURL = ""
+		case "webhook_format":
+			cfg.WebhookFormat = ""
 		case "github_token":
 			cfg.GitHubToken = ""
 		case "notification_filter":

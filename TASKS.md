@@ -77,7 +77,8 @@ Legend — Impact: 1–5 · Effort: S (≤½ day), M (1–2 days), L (3+ days) �
 ## In Progress
 
 - ✅ #1 Check Runs support — done (verified live against `devblac/prw`: legacy `pending`/0 statuses + 2 check runs → `success`)
-- Next: #2 Slack/Discord webhook formats
+- ✅ #2 Slack/Discord webhook formats — done (`webhook_format` config, auto-detected from URL; also covers the webhook timeout part of #6)
+- Next: #3 Windows toast + injection-safe escaping
 
 ## Planned
 

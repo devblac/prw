@@ -2,11 +2,12 @@ package notify
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/devblac/prw/internal/github"
@@ -86,15 +87,24 @@ func (c *ConsoleNotifier) Notify(event *StatusChangeEvent) error {
 
 // WebhookNotifier sends notifications to a webhook URL.
 type WebhookNotifier struct {
-	URL        string
+	URL string
+	// Format is one of the WebhookFormat* constants; empty or "auto" detects it from URL.
+	Format     string
 	HTTPClient *http.Client
 }
 
-// NewWebhookNotifier creates a webhook notifier.
+// NewWebhookNotifier creates a webhook notifier that auto-detects the payload format
+// (Slack, Discord, or generic JSON) from the URL.
 func NewWebhookNotifier(url string) *WebhookNotifier {
+	return NewWebhookNotifierWithFormat(url, WebhookFormatAuto)
+}
+
+// NewWebhookNotifierWithFormat creates a webhook notifier with an explicit payload format.
+func NewWebhookNotifierWithFormat(url, format string) *WebhookNotifier {
 	return &WebhookNotifier{
 		URL:        url,
-		HTTPClient: http.DefaultClient,
+		Format:     NormalizeWebhookFormat(format),
+		HTTPClient: &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
@@ -119,21 +129,7 @@ func (w *WebhookNotifier) Notify(event *StatusChangeEvent) error {
 		return nil
 	}
 
-	payload := WebhookPayload{
-		Type:          "pr_status_change",
-		Owner:         event.Owner,
-		Repo:          event.Repo,
-		PRNumber:      event.Number,
-		Title:         event.Title,
-		PreviousState: event.PreviousState,
-		CurrentState:  event.CurrentState,
-		SHA:           event.SHA,
-		FailedChecks:  event.FailedChecks,
-		URL:           github.FormatPRURL(event.Owner, event.Repo, event.Number),
-		Timestamp:     event.Timestamp,
-	}
-
-	data, err := json.Marshal(payload)
+	data, err := buildWebhookBody(resolveFormat(w.Format, w.URL), event)
 	if err != nil {
 		return fmt.Errorf("failed to marshal webhook payload: %w", err)
 	}
@@ -152,6 +148,10 @@ func (w *WebhookNotifier) Notify(event *StatusChangeEvent) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 200))
+		if msg := strings.TrimSpace(string(body)); msg != "" {
+			return fmt.Errorf("webhook returned non-2xx status: %d (%s)", resp.StatusCode, msg)
+		}
 		return fmt.Errorf("webhook returned non-2xx status: %d", resp.StatusCode)
 	}
 

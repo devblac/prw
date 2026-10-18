@@ -62,7 +62,7 @@ var broadcastCmd = &cobra.Command{
 
 		notifiers := []notify.Notifier{notify.NewConsoleNotifier()}
 		if !broadcastDryRun && webhookURL != "" {
-			notifiers = append(notifiers, notify.NewWebhookNotifier(webhookURL))
+			notifiers = append(notifiers, notify.NewWebhookNotifierWithFormat(webhookURL, cfg.WebhookFormat))
 		}
 		notifier := notify.NewMultiNotifier(notifiers...)
 
