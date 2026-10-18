@@ -70,13 +70,15 @@ Each release includes binaries for:
 - Windows (amd64)
 
 ```bash
-# Download and extract (example for Linux amd64)
-curl -LO https://github.com/devblac/prw/releases/download/v0.2.0/prw_v0.2.0_linux_amd64.tar.gz
-tar -xzf prw_v0.2.0_linux_amd64.tar.gz
+# Example for Linux amd64. Release asset names include the version, so resolve the
+# latest tag first instead of hardcoding one that will go stale.
+VERSION=$(curl -fsSL https://api.github.com/repos/devblac/prw/releases/latest | grep '"tag_name"' | cut -d'"' -f4)
+curl -LO "https://github.com/devblac/prw/releases/download/${VERSION}/prw_${VERSION}_linux_amd64.tar.gz"
+tar -xzf "prw_${VERSION}_linux_amd64.tar.gz"
 
 # Make it executable and move to PATH
-chmod +x prw_v0.2.0_linux_amd64
-sudo mv prw_v0.2.0_linux_amd64 /usr/local/bin/prw
+chmod +x "prw_${VERSION}_linux_amd64"
+sudo mv "prw_${VERSION}_linux_amd64" /usr/local/bin/prw
 
 # Verify installation
 prw version

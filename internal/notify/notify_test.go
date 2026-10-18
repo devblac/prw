@@ -189,10 +189,43 @@ func TestMultiNotifierError(t *testing.T) {
 	}
 }
 
+func TestMultiNotifier_ContinuesAfterAnEarlierFailure(t *testing.T) {
+	failing := &mockNotifier{err: fmt.Errorf("webhook down")}
+	okNotifier := &mockNotifier{}
+	multi := NewMultiNotifier(failing, okNotifier)
+
+	event := &StatusChangeEvent{Owner: "owner", Repo: "repo", Number: 1, PreviousState: "pending", CurrentState: "success"}
+
+	err := multi.Notify(event)
+	if err == nil || !strings.Contains(err.Error(), "webhook down") {
+		t.Errorf("expected the failure to be reported, got %v", err)
+	}
+	if len(okNotifier.events) != 1 {
+		t.Errorf("a failing notifier must not stop later ones from running, got %d events", len(okNotifier.events))
+	}
+}
+
+func TestMultiNotifier_AllFail(t *testing.T) {
+	a := &mockNotifier{err: fmt.Errorf("a failed")}
+	b := &mockNotifier{err: fmt.Errorf("b failed")}
+	multi := NewMultiNotifier(a, b)
+
+	err := multi.Notify(&StatusChangeEvent{})
+	if err == nil || !strings.Contains(err.Error(), "a failed") || !strings.Contains(err.Error(), "b failed") {
+		t.Errorf("expected both failures reported, got %v", err)
+	}
+}
+
+func TestMultiNotifier_NoNotifiers(t *testing.T) {
+	if err := NewMultiNotifier().Notify(&StatusChangeEvent{}); err != nil {
+		t.Errorf("expected nil error with no notifiers, got %v", err)
+	}
+}
+
 func TestWebhookNotifierMarshalError(t *testing.T) {
 	// This is hard to test directly, but we can test with invalid timestamp
 	notifier := NewWebhookNotifier("http://example.com")
-	
+
 	// Normal event should work
 	event := &StatusChangeEvent{
 		Owner:         "owner",
