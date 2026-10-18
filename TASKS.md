@@ -82,7 +82,8 @@ Legend — Impact: 1–5 · Effort: S (≤½ day), M (1–2 days), L (3+ days) �
 - ✅ #4 Reload config each tick / atomic writes — done (locked read-modify-write via `config.Update`; watcher persists only PR state; test suite no longer clobbers the real config)
 - ✅ #5 Auto-remove merged/closed PRs — done (verified live against devblac/prw#5: state=closed, merged=true); notifies once, always regardless of --on, then drops the PR via config.RemovePRs
 - ✅ #6 Robustness quick wins — done (MultiNotifier no longer stops at the first failure; README install snippet resolves the real latest release instead of a hardcoded v0.2.0, verified against the actual v0.3.0 asset). Webhook timeout/error-body part was already covered by #2.
-- Next: #7 Live integration smoke test (nightly CI against a public repo)
+- ✅ #7 Live integration smoke test — done (`internal/github/integration_test.go`, nightly `integration.yml`, `make integration`; verified the old /status-only logic fails it). **Phase 0 complete.**
+- Next: #8 `gh` extension distribution
 
 ## Planned
 

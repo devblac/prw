@@ -1,0 +1,35 @@
+name: Integration
+
+# Runs the tests tagged `integration` against the real GitHub API. Mocked unit tests
+# can't catch wrong assumptions about the API itself, so this runs nightly (to notice
+# GitHub-side changes) and can be started by hand from the Actions tab.
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: read
+  statuses: read
+  pull-requests: read
+
+jobs:
+  integration:
+    name: GitHub API integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Run integration tests
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: go test -v -count=1 -tags integration -run Integration ./internal/github/...
