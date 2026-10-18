@@ -159,10 +159,14 @@ type CommitStatus struct {
 
 // CheckRun represents a single check run (e.g. a GitHub Actions job).
 type CheckRun struct {
+	ID         int64  `json:"id"`
 	Name       string `json:"name"`
 	Status     string `json:"status"`     // queued, in_progress, completed, ...
 	Conclusion string `json:"conclusion"` // success, failure, neutral, cancelled, ...
 	HTMLURL    string `json:"html_url"`
+	App        struct {
+		ID int64 `json:"id"`
+	} `json:"app"`
 }
 
 type checkRunsResponse struct {
@@ -377,7 +381,7 @@ func SummarizeCI(status *CombinedStatus, runs []CheckRun) *CIStatus {
 		}
 	}
 
-	for _, run := range runs {
+	for _, run := range latestCheckRuns(runs) {
 		total++
 		if NormalizeState(run.Status) != "completed" {
 			hasPending = true
@@ -405,6 +409,35 @@ func SummarizeCI(status *CombinedStatus, runs []CheckRun) *CIStatus {
 	}
 
 	return &CIStatus{State: state, FailedChecks: failed, Total: total, Pending: pending}
+}
+
+// latestCheckRuns drops check runs superseded by a newer run of the same check (same
+// app and name). The API returns one run per check suite, so a workflow that ran more
+// than once for the same commit (e.g. an older run cancelled by `concurrency:
+// cancel-in-progress`) shows up twice; like GitHub's merge box and required checks,
+// only the newest one counts. Run IDs grow with creation time.
+func latestCheckRuns(runs []CheckRun) []CheckRun {
+	type checkKey struct {
+		app  int64
+		name string
+	}
+	newest := make(map[checkKey]int64, len(runs))
+	for _, run := range runs {
+		key := checkKey{run.App.ID, run.Name}
+		if id, seen := newest[key]; !seen || run.ID > id {
+			newest[key] = run.ID
+		}
+	}
+	if len(newest) == len(runs) {
+		return runs
+	}
+	latest := make([]CheckRun, 0, len(newest))
+	for _, run := range runs {
+		if newest[checkKey{run.App.ID, run.Name}] == run.ID {
+			latest = append(latest, run)
+		}
+	}
+	return latest
 }
 
 func hasCISignal(status *CombinedStatus, runs []CheckRun) bool {
