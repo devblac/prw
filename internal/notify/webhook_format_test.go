@@ -35,6 +35,7 @@ func TestDetectWebhookFormat(t *testing.T) {
 		want string
 	}{
 		{"https://hooks.slack.com/services/T000/B000/XXXX", WebhookFormatSlack},
+		{"https://hooks.slack-gov.com/services/T000/B000/XXXX", WebhookFormatSlack},
 		{"https://HOOKS.SLACK.COM/services/T000/B000/XXXX", WebhookFormatSlack},
 		{"https://discord.com/api/webhooks/123/token", WebhookFormatDiscord},
 		{"https://discordapp.com/api/webhooks/123/token", WebhookFormatDiscord},
