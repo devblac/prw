@@ -283,7 +283,7 @@ prw config set notification_native true
 **Platform requirements:**
 - **macOS**: Uses `osascript` (built-in)
 - **Linux**: Requires `notify-send` (usually from `libnotify-bin` package)
-- **Windows**: Uses PowerShell (built-in)
+- **Windows**: Uses Windows PowerShell (built-in) to show a toast. If nothing appears, check that Focus Assist / Do Not Disturb is off
 
 If the required tool is missing, `prw` will log a warning and continue polling without crashing. Native notifications work alongside console and webhook notifications—you can enable all three simultaneously.
 
