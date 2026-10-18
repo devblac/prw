@@ -1,6 +1,7 @@
 package github
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -192,8 +193,8 @@ type CIStatus struct {
 
 // CIFetcher is the subset of GitHub operations needed to compute CI status.
 type CIFetcher interface {
-	GetCombinedStatus(owner, repo, ref string) (*CombinedStatus, error)
-	GetCheckRuns(owner, repo, ref string) ([]CheckRun, error)
+	GetCombinedStatus(ctx context.Context, owner, repo, ref string) (*CombinedStatus, error)
+	GetCheckRuns(ctx context.Context, owner, repo, ref string) ([]CheckRun, error)
 }
 
 // ParsePRURL extracts owner, repo, and PR number from a GitHub PR URL.
@@ -216,36 +217,36 @@ func ParsePRURL(prURL string) (owner, repo string, number int, err error) {
 }
 
 // GetPullRequest fetches a pull request by owner, repo, and PR number.
-func (c *Client) GetPullRequest(owner, repo string, number int) (*PullRequest, error) {
+func (c *Client) GetPullRequest(ctx context.Context, owner, repo string, number int) (*PullRequest, error) {
 	path := fmt.Sprintf("/repos/%s/%s/pulls/%d", owner, repo, number)
 
 	var pr PullRequest
-	if err := c.getJSON(path, &pr); err != nil {
+	if err := c.getJSON(ctx, path, &pr); err != nil {
 		return nil, err
 	}
 	return &pr, nil
 }
 
 // GetCombinedStatus fetches the combined legacy commit status for a commit.
-func (c *Client) GetCombinedStatus(owner, repo, ref string) (*CombinedStatus, error) {
+func (c *Client) GetCombinedStatus(ctx context.Context, owner, repo, ref string) (*CombinedStatus, error) {
 	path := fmt.Sprintf("/repos/%s/%s/commits/%s/status", owner, repo, url.PathEscape(ref))
 
 	var status CombinedStatus
-	if err := c.getJSON(path, &status); err != nil {
+	if err := c.getJSON(ctx, path, &status); err != nil {
 		return nil, err
 	}
 	return &status, nil
 }
 
 // GetCheckRuns fetches the latest check runs (e.g. GitHub Actions jobs) for a commit.
-func (c *Client) GetCheckRuns(owner, repo, ref string) ([]CheckRun, error) {
+func (c *Client) GetCheckRuns(ctx context.Context, owner, repo, ref string) ([]CheckRun, error) {
 	var runs []CheckRun
 	for page := 1; page <= maxCheckRunPages; page++ {
 		path := fmt.Sprintf("/repos/%s/%s/commits/%s/check-runs?per_page=%d&page=%d",
 			owner, repo, url.PathEscape(ref), checkRunsPerPage, page)
 
 		var resp checkRunsResponse
-		if err := c.getJSON(path, &resp); err != nil {
+		if err := c.getJSON(ctx, path, &resp); err != nil {
 			var apiErr *APIError
 			if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusForbidden && !apiErr.RateLimited {
 				return nil, fmt.Errorf("%w (fine-grained tokens need the \"Checks: read\" permission)", err)
@@ -298,12 +299,12 @@ type searchIssuesResponse struct {
 
 // SearchPullRequests runs a GitHub issue search (e.g. "is:pr is:open author:@me") and
 // returns the pull requests it finds, up to 300. Qualifiers like @me need a token.
-func (c *Client) SearchPullRequests(query string) (*SearchResult, error) {
+func (c *Client) SearchPullRequests(ctx context.Context, query string) (*SearchResult, error) {
 	result := &SearchResult{}
 	for page := 1; page <= maxSearchPages; page++ {
 		path := fmt.Sprintf("/search/issues?q=%s&per_page=%d&page=%d", url.QueryEscape(query), searchPerPage, page)
 		var resp searchIssuesResponse
-		if err := c.getJSON(path, &resp); err != nil {
+		if err := c.getJSON(ctx, path, &resp); err != nil {
 			return nil, err
 		}
 		result.Total = resp.TotalCount
@@ -331,13 +332,13 @@ func (c *Client) SearchPullRequests(query string) (*SearchResult, error) {
 }
 
 // FetchCIStatus fetches commit statuses and check runs for a commit and aggregates them.
-func FetchCIStatus(c CIFetcher, owner, repo, ref string) (*CIStatus, error) {
-	status, err := c.GetCombinedStatus(owner, repo, ref)
+func FetchCIStatus(ctx context.Context, c CIFetcher, owner, repo, ref string) (*CIStatus, error) {
+	status, err := c.GetCombinedStatus(ctx, owner, repo, ref)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch commit status: %w", err)
 	}
 
-	runs, err := c.GetCheckRuns(owner, repo, ref)
+	runs, err := c.GetCheckRuns(ctx, owner, repo, ref)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch check runs: %w", err)
 	}
@@ -452,8 +453,8 @@ func hasCISignal(status *CombinedStatus, runs []CheckRun) bool {
 }
 
 // getJSON performs an authenticated GET request and decodes the JSON response into v.
-func (c *Client) getJSON(path string, v interface{}) error {
-	req, err := http.NewRequest("GET", c.BaseURL+path, nil)
+func (c *Client) getJSON(ctx context.Context, path string, v interface{}) error {
+	req, err := http.NewRequestWithContext(ctx, "GET", c.BaseURL+path, nil)
 	if err != nil {
 		return err
 	}

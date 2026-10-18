@@ -1,6 +1,7 @@
 package watcher
 
 import (
+	"context"
 	"testing"
 
 	"github.com/devblac/prw/internal/config"
@@ -19,7 +20,7 @@ func TestCheckPR_MergedPRIsRemoved(t *testing.T) {
 	cfg := &config.Config{WatchedPRs: []config.WatchedPR{watched(1, "success")}}
 	w := New(client, cfg, notifier)
 
-	closed, err := w.checkPR(&cfg.WatchedPRs[0])
+	closed, err := w.checkPR(context.Background(), &cfg.WatchedPRs[0])
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -44,7 +45,7 @@ func TestCheckPR_ClosedWithoutMergeIsRemoved(t *testing.T) {
 	cfg := &config.Config{WatchedPRs: []config.WatchedPR{watched(1, "failure")}}
 	w := New(client, cfg, notifier)
 
-	closed, err := w.checkPR(&cfg.WatchedPRs[0])
+	closed, err := w.checkPR(context.Background(), &cfg.WatchedPRs[0])
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -62,7 +63,7 @@ func TestCheckPR_MergedNotifiesEvenWithFailFilter(t *testing.T) {
 	cfg := &config.Config{NotificationFilter: config.NotificationFilterFail, WatchedPRs: []config.WatchedPR{watched(1, "success")}}
 	w := New(client, cfg, notifier)
 
-	if _, err := w.checkPR(&cfg.WatchedPRs[0]); err != nil {
+	if _, err := w.checkPR(context.Background(), &cfg.WatchedPRs[0]); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(notifier.events) != 1 {
@@ -80,7 +81,7 @@ func TestCheckPR_OpenPRIsNotRemoved(t *testing.T) {
 	cfg := &config.Config{WatchedPRs: []config.WatchedPR{watched(1, "pending")}}
 	w := New(client, cfg, &mockNotifier{})
 
-	closed, err := w.checkPR(&cfg.WatchedPRs[0])
+	closed, err := w.checkPR(context.Background(), &cfg.WatchedPRs[0])
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -107,7 +108,7 @@ func TestCheckAllPRs_RemovesOnlyClosedPRs(t *testing.T) {
 	inMemory := &config.Config{PollIntervalSeconds: 20, WatchedPRs: []config.WatchedPR{watched(1, "pending"), watched(2, "success")}}
 	w := New(client, inMemory, &mockNotifier{})
 
-	w.checkAllPRs()
+	w.checkAllPRs(context.Background())
 
 	if len(w.config.WatchedPRs) != 1 || w.config.WatchedPRs[0].Number != 1 {
 		t.Fatalf("in-memory watch list after checkAllPRs = %+v, want only #1", w.config.WatchedPRs)
@@ -144,7 +145,7 @@ func TestCheckAllPRs_RemovalSurvivesConcurrentChange(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	w.checkAllPRs()
+	w.checkAllPRs(context.Background())
 
 	loaded, _ := config.Load()
 	if len(loaded.WatchedPRs) != 1 || loaded.WatchedPRs[0].Number != 2 {

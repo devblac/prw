@@ -1,6 +1,7 @@
 package github
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -37,7 +38,7 @@ func TestGetJSON_UsesETagAndServesCachedBodyOn304(t *testing.T) {
 	})
 
 	for i := 0; i < 3; i++ {
-		pr, err := c.GetPullRequest("o", "r", 7)
+		pr, err := c.GetPullRequest(context.Background(), "o", "r", 7)
 		if err != nil {
 			t.Fatalf("request %d: %v", i, err)
 		}
@@ -63,13 +64,13 @@ func TestGetJSON_RefreshesCacheWhenResourceChanges(t *testing.T) {
 		fmt.Fprintf(w, `{"state":"pending","total_count":%d}`, v)
 	})
 
-	s, _ := c.GetCombinedStatus("o", "r", "sha")
+	s, _ := c.GetCombinedStatus(context.Background(), "o", "r", "sha")
 	atomic.StoreInt32(&version, 2)
-	s2, err := c.GetCombinedStatus("o", "r", "sha")
+	s2, err := c.GetCombinedStatus(context.Background(), "o", "r", "sha")
 	if err != nil {
 		t.Fatal(err)
 	}
-	s3, _ := c.GetCombinedStatus("o", "r", "sha")
+	s3, _ := c.GetCombinedStatus(context.Background(), "o", "r", "sha")
 	if s.TotalCount != 1 || s2.TotalCount != 2 || s3.TotalCount != 2 {
 		t.Errorf("got %d, %d, %d; want 1, 2, 2", s.TotalCount, s2.TotalCount, s3.TotalCount)
 	}
@@ -85,8 +86,8 @@ func TestGetJSON_CachesPerPath(t *testing.T) {
 		fmt.Fprintf(w, `{"number":%s}`, n)
 	})
 
-	a, _ := c.GetPullRequest("o", "r", 1)
-	b, _ := c.GetPullRequest("o", "r", 2)
+	a, _ := c.GetPullRequest(context.Background(), "o", "r", 1)
+	b, _ := c.GetPullRequest(context.Background(), "o", "r", 2)
 	if a.Number != 1 || b.Number != 2 {
 		t.Errorf("got #%d and #%d", a.Number, b.Number)
 	}
@@ -99,15 +100,15 @@ func TestGetJSON_NoETagMeansNoConditionalRequest(t *testing.T) {
 		}
 		fmt.Fprint(w, `{"number":1}`)
 	})
-	c.GetPullRequest("o", "r", 1)
-	c.GetPullRequest("o", "r", 1)
+	c.GetPullRequest(context.Background(), "o", "r", 1)
+	c.GetPullRequest(context.Background(), "o", "r", 1)
 }
 
 func TestGetJSON_Unexpected304IsAnError(t *testing.T) {
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotModified)
 	})
-	if _, err := c.GetPullRequest("o", "r", 1); err == nil {
+	if _, err := c.GetPullRequest(context.Background(), "o", "r", 1); err == nil {
 		t.Error("a 304 without a cached body must not decode as an empty PR")
 	}
 }
@@ -134,7 +135,7 @@ func TestClient_RecordsRateLimitHeaders(t *testing.T) {
 	if c.RateLimit().Known {
 		t.Error("rate limit should be unknown before any request")
 	}
-	c.GetPullRequest("o", "r", 1)
+	c.GetPullRequest(context.Background(), "o", "r", 1)
 	rl := c.RateLimit()
 	if !rl.Known || rl.Limit != 5000 || rl.Remaining != 4321 || rl.Reset.Unix() != reset {
 		t.Errorf("RateLimit() = %+v", rl)
@@ -251,7 +252,7 @@ func TestGetCheckRuns_RateLimitHasNoPermissionHint(t *testing.T) {
 		w.WriteHeader(http.StatusForbidden)
 		fmt.Fprint(w, `{"message":"API rate limit exceeded"}`)
 	})
-	_, err := c.GetCheckRuns("o", "r", "sha")
+	_, err := c.GetCheckRuns(context.Background(), "o", "r", "sha")
 	if limited, _ := IsRateLimited(err); !limited {
 		t.Fatalf("expected a rate limit error, got %v", err)
 	}
@@ -273,7 +274,7 @@ func TestClient_ConcurrentRequestsAreSafe(t *testing.T) {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			c.GetPullRequest("o", "r", n%3)
+			c.GetPullRequest(context.Background(), "o", "r", n%3)
 			c.RateLimit()
 		}(i)
 	}

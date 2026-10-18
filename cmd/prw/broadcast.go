@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -70,13 +71,13 @@ var broadcastCmd = &cobra.Command{
 		for i := range cfg.WatchedPRs {
 			pr := &cfg.WatchedPRs[i]
 
-			ghPR, err := client.GetPullRequest(pr.Owner, pr.Repo, pr.Number)
+			ghPR, err := client.GetPullRequest(context.Background(), pr.Owner, pr.Repo, pr.Number)
 			if err != nil {
 				fmt.Printf("Error fetching PR %s/%s#%d: %v\n", pr.Owner, pr.Repo, pr.Number, err)
 				continue
 			}
 
-			ci, err := github.FetchCIStatus(client, pr.Owner, pr.Repo, ghPR.Head.SHA)
+			ci, err := github.FetchCIStatus(context.Background(), client, pr.Owner, pr.Repo, ghPR.Head.SHA)
 			if err != nil {
 				fmt.Printf("Error fetching status for %s/%s#%d: %v\n", pr.Owner, pr.Repo, pr.Number, err)
 				continue

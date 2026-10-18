@@ -1,6 +1,7 @@
 package watcher
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -29,8 +30,8 @@ var AutoWatchDescription = map[string]string{
 // Searcher runs GitHub pull request searches. GetPullRequest tells a review request
 // that was withdrawn apart from a PR that was merged or closed.
 type Searcher interface {
-	SearchPullRequests(query string) (*github.SearchResult, error)
-	GetPullRequest(owner, repo string, number int) (*github.PullRequest, error)
+	SearchPullRequests(ctx context.Context, query string) (*github.SearchResult, error)
+	GetPullRequest(ctx context.Context, owner, repo string, number int) (*github.PullRequest, error)
 }
 
 // SyncResult reports what SyncAutoWatch changed.
@@ -49,7 +50,7 @@ type SyncResult struct {
 // still notifies about it before dropping them. PRs watched by hand are never touched.
 //
 // It returns an error only if every search failed; other problems are Warnings.
-func SyncAutoWatch(client Searcher, sources []string) (*SyncResult, error) {
+func SyncAutoWatch(ctx context.Context, client Searcher, sources []string) (*SyncResult, error) {
 	result := &SyncResult{}
 	found := map[string]*github.SearchResult{}
 	var lastErr error
@@ -60,7 +61,7 @@ func SyncAutoWatch(client Searcher, sources []string) (*SyncResult, error) {
 			result.Warnings = append(result.Warnings, fmt.Sprintf("unknown auto-watch source %q ignored", source))
 			continue
 		}
-		res, err := client.SearchPullRequests(query)
+		res, err := client.SearchPullRequests(ctx, query)
 		if err != nil {
 			lastErr = err
 			result.Warnings = append(result.Warnings, fmt.Sprintf("search for %s failed: %v", AutoWatchDescription[source], err))
@@ -75,7 +76,7 @@ func SyncAutoWatch(client Searcher, sources []string) (*SyncResult, error) {
 	if len(found) == 0 && lastErr != nil {
 		return result, lastErr
 	}
-	closed := closedReviewRequests(client, found)
+	closed := closedReviewRequests(ctx, client, found)
 
 	err := config.Update(func(c *config.Config) error {
 		changed := false
@@ -125,7 +126,7 @@ func SyncAutoWatch(client Searcher, sources []string) (*SyncResult, error) {
 // because they were merged or closed: the search only returns open PRs, so they look
 // just like withdrawn requests. It runs before the config is locked, as it makes API
 // calls. A PR whose lookup fails is not reported, i.e. it's removed as before.
-func closedReviewRequests(client Searcher, found map[string]*github.SearchResult) map[string]bool {
+func closedReviewRequests(ctx context.Context, client Searcher, found map[string]*github.SearchResult) map[string]bool {
 	res, ok := found[config.AutoWatchReviewRequested]
 	if !ok || res.Incomplete {
 		return nil // nothing will be removed
@@ -144,7 +145,7 @@ func closedReviewRequests(client Searcher, found map[string]*github.SearchResult
 		if pr.Source != config.AutoWatchReviewRequested || matches[key] {
 			continue
 		}
-		if ghPR, err := client.GetPullRequest(pr.Owner, pr.Repo, pr.Number); err == nil && ghPR.IsClosed() {
+		if ghPR, err := client.GetPullRequest(ctx, pr.Owner, pr.Repo, pr.Number); err == nil && ghPR.IsClosed() {
 			closed[key] = true
 		}
 	}
@@ -156,7 +157,7 @@ func prKey(owner, repo string, number int) string {
 }
 
 // syncAutoWatch refreshes the auto-watch searches during `prw run` and reports changes.
-func (w *Watcher) syncAutoWatch() {
+func (w *Watcher) syncAutoWatch(ctx context.Context) {
 	sources := w.config.AutoWatch
 	if fresh, err := config.Load(); err == nil {
 		sources = fresh.AutoWatch // `prw watch --mine` may have run since startup
@@ -170,7 +171,7 @@ func (w *Watcher) syncAutoWatch() {
 	if !ok {
 		return
 	}
-	res, err := SyncAutoWatch(searcher, sources)
+	res, err := SyncAutoWatch(ctx, searcher, sources)
 	for _, warning := range res.Warnings {
 		fmt.Printf("Warning: auto-watch: %s\n", warning)
 	}

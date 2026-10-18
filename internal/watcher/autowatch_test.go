@@ -22,7 +22,7 @@ type fakeSearcher struct {
 	searches int
 }
 
-func (f *fakeSearcher) SearchPullRequests(query string) (*github.SearchResult, error) {
+func (f *fakeSearcher) SearchPullRequests(ctx context.Context, query string) (*github.SearchResult, error) {
 	f.searches++
 	for source, q := range autoWatchQueries {
 		if q == query {
@@ -82,7 +82,7 @@ func TestSyncAutoWatch_AddsMatchesTaggedWithSource(t *testing.T) {
 		config.AutoWatchReviewRequested: found(3),
 	}}
 
-	res, err := SyncAutoWatch(s, []string{config.AutoWatchMine, config.AutoWatchReviewRequested})
+	res, err := SyncAutoWatch(context.Background(), s, []string{config.AutoWatchMine, config.AutoWatchReviewRequested})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestSyncAutoWatch_DropsWithdrawnReviewRequestsButKeepsMine(t *testing.T) {
 		config.AutoWatchReviewRequested: found(21),
 	}}
 
-	res, err := SyncAutoWatch(s, []string{config.AutoWatchMine, config.AutoWatchReviewRequested})
+	res, err := SyncAutoWatch(context.Background(), s, []string{config.AutoWatchMine, config.AutoWatchReviewRequested})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func TestSyncAutoWatch_IncompleteResultsNeverRemove(t *testing.T) {
 	partial.Incomplete, partial.Total = true, 2
 	s := &fakeSearcher{results: map[string]*github.SearchResult{config.AutoWatchReviewRequested: partial}}
 
-	res, err := SyncAutoWatch(s, []string{config.AutoWatchReviewRequested})
+	res, err := SyncAutoWatch(context.Background(), s, []string{config.AutoWatchReviewRequested})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestSyncAutoWatch_OneFailedSearchDoesNotBlockTheOther(t *testing.T) {
 		errs:    map[string]error{config.AutoWatchReviewRequested: errors.New("boom")},
 	}
 
-	res, err := SyncAutoWatch(s, []string{config.AutoWatchMine, config.AutoWatchReviewRequested})
+	res, err := SyncAutoWatch(context.Background(), s, []string{config.AutoWatchMine, config.AutoWatchReviewRequested})
 	if err != nil {
 		t.Fatalf("a partial failure is a warning, got %v", err)
 	}
@@ -179,7 +179,7 @@ func TestSyncAutoWatch_AllSearchesFailing(t *testing.T) {
 	boom := errors.New("network down")
 	s := &fakeSearcher{errs: map[string]error{config.AutoWatchMine: boom}}
 
-	if _, err := SyncAutoWatch(s, []string{config.AutoWatchMine}); !errors.Is(err, boom) {
+	if _, err := SyncAutoWatch(context.Background(), s, []string{config.AutoWatchMine}); !errors.Is(err, boom) {
 		t.Errorf("err = %v, want the search error", err)
 	}
 }
@@ -189,7 +189,7 @@ func TestSyncAutoWatch_SkipsSourceDisabledMeanwhile(t *testing.T) {
 	saveConfig(t, &config.Config{}) // `prw unwatch --mine` ran after the caller read the config
 	s := &fakeSearcher{results: map[string]*github.SearchResult{config.AutoWatchMine: found(1)}}
 
-	res, err := SyncAutoWatch(s, []string{config.AutoWatchMine})
+	res, err := SyncAutoWatch(context.Background(), s, []string{config.AutoWatchMine})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +201,7 @@ func TestSyncAutoWatch_SkipsSourceDisabledMeanwhile(t *testing.T) {
 func TestSyncAutoWatch_UnknownSource(t *testing.T) {
 	useTempConfig(t)
 	saveConfig(t, &config.Config{AutoWatch: []string{"bogus"}})
-	res, err := SyncAutoWatch(&fakeSearcher{}, []string{"bogus"})
+	res, err := SyncAutoWatch(context.Background(), &fakeSearcher{}, []string{"bogus"})
 	if err != nil {
 		t.Fatal(err)
 	}
