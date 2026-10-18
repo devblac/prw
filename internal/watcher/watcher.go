@@ -60,9 +60,24 @@ func (w *Watcher) Run(ctx context.Context) error {
 			fmt.Println("\nWatcher stopped.")
 			return ctx.Err()
 		case <-ticker.C:
+			w.reloadWatchedPRs()
 			w.checkAllPRs()
 		}
 	}
+}
+
+// reloadWatchedPRs re-reads the watch list from disk so PRs added with `prw watch` or
+// removed with `prw unwatch` while the watcher is running take effect on the next poll.
+func (w *Watcher) reloadWatchedPRs() {
+	fresh, err := config.Load()
+	if err != nil {
+		fmt.Printf("Warning: failed to reload config: %v\n", err)
+		return
+	}
+	if len(fresh.WatchedPRs) != len(w.config.WatchedPRs) {
+		fmt.Printf("Watch list changed: now watching %d PR(s).\n", len(fresh.WatchedPRs))
+	}
+	w.config.WatchedPRs = fresh.WatchedPRs
 }
 
 // RunOnce checks all watched PRs a single time and returns.
@@ -77,24 +92,73 @@ func (w *Watcher) RunOnce(ctx context.Context) error {
 }
 
 func (w *Watcher) checkAllPRs() {
-	for i := range w.config.WatchedPRs {
-		pr := &w.config.WatchedPRs[i]
-		if err := w.checkPR(pr); err != nil {
-			fmt.Printf("Error checking PR %s/%s#%d: %v\n", pr.Owner, pr.Repo, pr.Number, err)
-		}
-	}
+	var stillWatched, done []config.WatchedPR
 
-	// Save config after checking all PRs
-	if err := w.config.Save(); err != nil {
+	for i := range w.config.WatchedPRs {
+		pr := w.config.WatchedPRs[i]
+		closed, err := w.checkPR(&pr)
+		if err != nil {
+			fmt.Printf("Error checking PR %s/%s#%d: %v\n", pr.Owner, pr.Repo, pr.Number, err)
+			stillWatched = append(stillWatched, pr) // keep watching; preserve any partial update (e.g. title)
+			continue
+		}
+		if closed {
+			done = append(done, pr)
+			continue
+		}
+		stillWatched = append(stillWatched, pr)
+	}
+	w.config.WatchedPRs = stillWatched
+
+	// Persist only the polling state. Saving the whole in-memory config would erase
+	// PRs added (or resurrect PRs removed) by other commands since the last reload,
+	// and would write run-only overrides such as --on into the config file.
+	if err := config.SavePRStates(stillWatched); err != nil {
 		fmt.Printf("Warning: failed to save config: %v\n", err)
+	}
+	if len(done) > 0 {
+		if err := config.RemovePRs(done); err != nil {
+			fmt.Printf("Warning: failed to remove merged/closed PRs from config: %v\n", err)
+		}
 	}
 }
 
-func (w *Watcher) checkPR(pr *config.WatchedPR) error {
-	// Fetch the PR to get current head SHA
+// checkPR checks one PR's CI status and reports whether it is now closed (merged or
+// not), in which case the caller should stop watching it.
+func (w *Watcher) checkPR(pr *config.WatchedPR) (closed bool, err error) {
+	// Fetch the PR to get its state and current head SHA
 	ghPR, err := w.client.GetPullRequest(pr.Owner, pr.Repo, pr.Number)
 	if err != nil {
-		return fmt.Errorf("failed to fetch PR: %w", err)
+		return false, fmt.Errorf("failed to fetch PR: %w", err)
+	}
+
+	// Refresh title when available
+	if ghPR.Title != "" && ghPR.Title != pr.Title {
+		pr.Title = ghPR.Title
+	}
+
+	if ghPR.IsClosed() {
+		finalState := "closed"
+		if ghPR.Merged {
+			finalState = "merged"
+		}
+		// Always notify once, regardless of --on/notification_filter: a merge or close
+		// is a lifecycle event, not a CI result, and this is the user's only chance to
+		// see it before prw stops watching the PR.
+		event := &notify.StatusChangeEvent{
+			Owner:         pr.Owner,
+			Repo:          pr.Repo,
+			Number:        pr.Number,
+			Title:         pr.Title,
+			PreviousState: github.NormalizeState(pr.LastKnownState),
+			CurrentState:  finalState,
+			SHA:           ghPR.Head.SHA,
+			Timestamp:     time.Now(),
+		}
+		if err := w.notifier.Notify(event); err != nil {
+			fmt.Printf("Warning: notification failed: %v\n", err)
+		}
+		return true, nil
 	}
 
 	currentSHA := ghPR.Head.SHA
@@ -102,16 +166,11 @@ func (w *Watcher) checkPR(pr *config.WatchedPR) error {
 	// Aggregate commit statuses and check runs (GitHub Actions) for the head commit
 	ci, err := github.FetchCIStatus(w.client, pr.Owner, pr.Repo, currentSHA)
 	if err != nil {
-		return fmt.Errorf("failed to fetch status: %w", err)
+		return false, fmt.Errorf("failed to fetch status: %w", err)
 	}
 
 	currentState := ci.State
 	previousState := github.NormalizeState(pr.LastKnownState)
-
-	// Refresh title when available
-	if ghPR.Title != "" && ghPR.Title != pr.Title {
-		pr.Title = ghPR.Title
-	}
 
 	// Check if status changed
 	if previousState != "" && previousState != currentState && shouldNotify(w.config.NotificationFilter, currentState) {
@@ -137,7 +196,7 @@ func (w *Watcher) checkPR(pr *config.WatchedPR) error {
 	pr.LastKnownState = currentState
 	pr.LastChecked = time.Now()
 
-	return nil
+	return false, nil
 }
 
 func shouldNotify(filter, currentState string) bool {

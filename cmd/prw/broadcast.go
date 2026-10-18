@@ -137,7 +137,9 @@ var broadcastCmd = &cobra.Command{
 			pr.LastChecked = time.Now()
 		}
 
-		if err := cfg.Save(); err != nil {
+		// Broadcast makes network calls for a while; persist only the polling state so
+		// PRs added or removed meanwhile (e.g. by `prw watch`) are not overwritten.
+		if err := config.SavePRStates(cfg.WatchedPRs); err != nil {
 			return fmt.Errorf("failed to save config: %w", err)
 		}
 

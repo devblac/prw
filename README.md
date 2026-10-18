@@ -31,6 +31,7 @@ The tool is deliberately minimal. It does one thing well: watch PRs and tell you
 
 ## Features
 
+- **Auto-cleanup**: merged/closed PRs are notified once and dropped from the watch list by `prw run`
 - **Watch multiple PRs** from different repositories simultaneously
 - **Instant notifications** when CI status changes (pending, success, failure, error)
 - **Chat-ops broadcast**: one command to push current PR status to Slack/Discord (`prw broadcast`)
@@ -337,6 +338,10 @@ prw run --on change
 ```
 
 The same setting can be persisted via `prw config set notification_filter <value>`.
+
+### Merged and closed PRs
+
+Once `prw run` sees that a watched PR was merged or closed, it sends one final notification (`CurrentState` is `merged` or `closed`, so you'll see e.g. `success → merged`) and removes the PR from the watch list — regardless of `--on`/`notification_filter`, since a merge is a lifecycle event, not a CI result. This keeps the watch list from growing forever. `prw list` and `prw broadcast` are unaffected: a PR only drops out once `prw run` has actually polled it.
 
 ## Troubleshooting
 
