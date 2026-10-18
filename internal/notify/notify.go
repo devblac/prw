@@ -12,8 +12,17 @@ import (
 	"github.com/devblac/prw/internal/github"
 )
 
-// StatusChangeEvent represents a CI status change for a PR.
+// Event kinds. CI status changes (and merged/closed) have an empty Kind, as before.
+const (
+	EventKindCI     = ""
+	EventKindReview = "review" // states are github.Review*
+	EventKindMerge  = "merge"  // states are github.Merge*
+)
+
+// StatusChangeEvent represents a change of a PR: its CI status by default, or its
+// review decision or merge state, depending on Kind.
 type StatusChangeEvent struct {
+	Kind          string
 	Owner         string
 	Repo          string
 	Number        int
@@ -65,12 +74,19 @@ func NewConsoleNotifier() *ConsoleNotifier {
 func (c *ConsoleNotifier) Notify(event *StatusChangeEvent) error {
 	prURL := github.FormatPRURL(event.Owner, event.Repo, event.Number)
 
-	fmt.Printf("\n🔔 Status Change Detected!\n")
+	switch event.Kind {
+	case EventKindReview:
+		fmt.Printf("\n🔔 Review Update!\n")
+	case EventKindMerge:
+		fmt.Printf("\n🔔 Merge Status Change!\n")
+	default:
+		fmt.Printf("\n🔔 Status Change Detected!\n")
+	}
 	fmt.Printf("   PR: %s/%s#%d\n", event.Owner, event.Repo, event.Number)
 	if event.Title != "" {
 		fmt.Printf("   Title: %s\n", event.Title)
 	}
-	fmt.Printf("   Status: %s → %s\n", event.PreviousState, event.CurrentState)
+	fmt.Printf("   %s: %s → %s\n", stateLabel(event.Kind), event.PreviousState, event.CurrentState)
 	if len(event.FailedChecks) > 0 {
 		fmt.Printf("   Failed checks:\n")
 		for _, check := range event.FailedChecks {

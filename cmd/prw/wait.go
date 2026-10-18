@@ -149,19 +149,22 @@ Progress goes to stderr; the result goes to stdout (as JSON with --json).`,
 
 // waitResult is the outcome of waitForCI; it is also the --json output.
 type waitResult struct {
-	Owner          string               `json:"owner"`
-	Repo           string               `json:"repo"`
-	Number         int                  `json:"number"`
-	Title          string               `json:"title,omitempty"`
-	URL            string               `json:"url"`
-	SHA            string               `json:"sha,omitempty"`
-	State          string               `json:"state"` // success, failure, error, pending, merged, closed
-	FailedChecks   []github.FailedCheck `json:"failed_checks,omitempty"`
-	TotalChecks    int                  `json:"total_checks"`
-	PendingChecks  int                  `json:"pending_checks"`
-	ElapsedSeconds float64              `json:"elapsed_seconds"`
-	TimedOut       bool                 `json:"timed_out,omitempty"`
-	Interrupted    bool                 `json:"interrupted,omitempty"`
+	Owner         string               `json:"owner"`
+	Repo          string               `json:"repo"`
+	Number        int                  `json:"number"`
+	Title         string               `json:"title,omitempty"`
+	URL           string               `json:"url"`
+	SHA           string               `json:"sha,omitempty"`
+	State         string               `json:"state"` // success, failure, error, pending, merged, closed
+	FailedChecks  []github.FailedCheck `json:"failed_checks,omitempty"`
+	TotalChecks   int                  `json:"total_checks"`
+	PendingChecks int                  `json:"pending_checks"`
+	// MergeState is GitHub's mergeability (ready, conflict, blocked, behind, unstable,
+	// draft); empty while GitHub is still computing it.
+	MergeState     string  `json:"merge_state,omitempty"`
+	ElapsedSeconds float64 `json:"elapsed_seconds"`
+	TimedOut       bool    `json:"timed_out,omitempty"`
+	Interrupted    bool    `json:"interrupted,omitempty"`
 }
 
 // exitErr maps the result to the command's exit code (nil means exit 0).
@@ -282,6 +285,7 @@ func pollOnce(ctx context.Context, client ciClient, result *waitResult) (string,
 		result.Title = pr.Title
 	}
 	result.SHA = pr.Head.SHA
+	result.MergeState = github.MergeStatus(pr)
 
 	if pr.IsClosed() {
 		result.State = "closed"

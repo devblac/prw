@@ -428,7 +428,7 @@ var mcpTools = []map[string]interface{}{
 	{
 		"name":        "get_ci_status",
 		"title":       "Get PR CI status",
-		"description": "Get the current CI status of a GitHub pull request: overall state (success, failure, error, pending, merged, closed, or no_ci when the PR has no checks at all), check counts, and failed checks with links. Aggregates GitHub Actions check runs and legacy commit statuses. Returns immediately.",
+		"description": "Get the current CI status of a GitHub pull request: overall state (success, failure, error, pending, merged, closed, or no_ci when the PR has no checks at all), check counts, failed checks with links, and merge_state (ready, conflict, blocked, behind, unstable, draft) telling whether the PR can be merged. Aggregates GitHub Actions check runs and legacy commit statuses. Returns immediately.",
 		"inputSchema": map[string]interface{}{
 			"type":                 "object",
 			"properties":           map[string]interface{}{"pr_url": prURLSchema},
@@ -626,6 +626,8 @@ type watchedPROutput struct {
 	Number      int        `json:"number"`
 	Title       string     `json:"title,omitempty"`
 	LastState   string     `json:"last_known_state"`
+	Review      string     `json:"review,omitempty"` // approved, changes_requested, none
+	Merge       string     `json:"merge,omitempty"`  // ready, conflict, blocked, behind, unstable, draft
 	LastChecked *time.Time `json:"last_checked,omitempty"`
 }
 
@@ -642,7 +644,7 @@ func toolListWatched(ctx context.Context, s *mcpServer, _ json.RawMessage, _ io.
 		}
 		out := watchedPROutput{
 			URL: github.FormatPRURL(pr.Owner, pr.Repo, pr.Number), Owner: pr.Owner, Repo: pr.Repo,
-			Number: pr.Number, Title: pr.Title, LastState: state,
+			Number: pr.Number, Title: pr.Title, LastState: state, Review: pr.LastReviewState, Merge: pr.LastMergeState,
 		}
 		if !pr.LastChecked.IsZero() {
 			t := pr.LastChecked

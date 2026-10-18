@@ -30,6 +30,7 @@ const (
 	colorFailure = 0xD1242F
 	colorPending = 0xDBAB09
 	colorNoCI    = 0x8C959F
+	colorChanges = 0xBC4C00
 )
 
 // IsValidWebhookFormat reports whether value is a supported webhook format.
@@ -91,7 +92,7 @@ func buildWebhookBody(format string, event *StatusChangeEvent) ([]byte, error) {
 
 func genericPayload(event *StatusChangeEvent) WebhookPayload {
 	return WebhookPayload{
-		Type:          "pr_status_change",
+		Type:          payloadType(event.Kind),
 		Owner:         event.Owner,
 		Repo:          event.Repo,
 		PRNumber:      event.Number,
@@ -105,14 +106,44 @@ func genericPayload(event *StatusChangeEvent) WebhookPayload {
 	}
 }
 
+// payloadType is the generic payload's "type" for each event kind.
+func payloadType(kind string) string {
+	switch kind {
+	case EventKindReview:
+		return "pr_review_change"
+	case EventKindMerge:
+		return "pr_merge_state_change"
+	default:
+		return "pr_status_change"
+	}
+}
+
+// stateLabel names what changed, e.g. "Status: pending → success".
+func stateLabel(kind string) string {
+	switch kind {
+	case EventKindReview:
+		return "Review"
+	case EventKindMerge:
+		return "Merge"
+	default:
+		return "Status"
+	}
+}
+
 func stateEmoji(state string) string {
 	switch state {
-	case "success":
+	case "success", github.ReviewApproved:
 		return "✅"
 	case "failure", "error":
 		return "❌"
 	case github.StateNoCI:
 		return "⚪"
+	case github.ReviewChangesRequested:
+		return "📝"
+	case github.MergeConflict:
+		return "⚠️"
+	case github.MergeReady:
+		return "🚀"
 	default:
 		return "⏳"
 	}
@@ -120,10 +151,12 @@ func stateEmoji(state string) string {
 
 func stateColor(state string) int {
 	switch state {
-	case "success":
+	case "success", github.ReviewApproved, github.MergeReady:
 		return colorSuccess
-	case "failure", "error":
+	case "failure", "error", github.MergeConflict:
 		return colorFailure
+	case github.ReviewChangesRequested:
+		return colorChanges
 	case github.StateNoCI:
 		return colorNoCI
 	default:
@@ -156,7 +189,7 @@ func slackPayload(event *StatusChangeEvent) map[string]string {
 	if event.Title != "" {
 		fmt.Fprintf(&b, " — %s", slackEscape(event.Title))
 	}
-	fmt.Fprintf(&b, "\nStatus: `%s`", transition(event))
+	fmt.Fprintf(&b, "\n%s: `%s`", stateLabel(event.Kind), transition(event))
 
 	for i, check := range event.FailedChecks {
 		if i == maxChecksListed {
@@ -188,7 +221,7 @@ func discordPayload(event *StatusChangeEvent) map[string]interface{} {
 	}
 
 	var desc strings.Builder
-	fmt.Fprintf(&desc, "Status: `%s`", transition(event))
+	fmt.Fprintf(&desc, "%s: `%s`", stateLabel(event.Kind), transition(event))
 	for i, check := range event.FailedChecks {
 		if i == maxChecksListed {
 			fmt.Fprintf(&desc, "\n… and %d more", len(event.FailedChecks)-maxChecksListed)

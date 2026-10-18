@@ -37,6 +37,7 @@ The tool is deliberately minimal. It does one thing well: watch PRs and tell you
 - **Auto-cleanup**: merged/closed PRs are notified once and dropped from the watch list by `prw run`
 - **Watch multiple PRs** from different repositories simultaneously
 - **Instant notifications** when CI status changes (pending, success, failure, error)
+- **Review & merge events**: approved, changes requested, merge conflicts, ready to merge
 - **Chat-ops broadcast**: one command to push current PR status to Slack/Discord (`prw broadcast`)
 - **Webhook support** for Slack, Discord, or custom integrations
 - **Native OS notifications** via system toasts (macOS/Linux/Windows)
@@ -345,6 +346,7 @@ prw config set webhook_url https://hooks.slack.com/services/YOUR/WEBHOOK/URL
 - **`webhook_url`**: Optional HTTP endpoint for notifications
 - **`webhook_format`**: Payload format: `auto` (default, detected from the URL), `slack`, `discord`, or `generic`
 - **`notification_native`**: Enable native OS notifications (true/false, default: false)
+- **`pr_events`**: Also notify about reviews and merge conflicts / readiness (true/false, default: true)
 - **`github_token`**: GitHub Personal Access Token (prefer env var `GITHUB_TOKEN`)
 
 ## Notifications
@@ -431,6 +433,29 @@ prw run --on change
 ```
 
 The same setting can be persisted via `prw config set notification_filter <value>`.
+
+### Reviews and merge conflicts
+
+Besides CI, `prw run` notifies when a PR's review decision or merge state changes:
+
+| Event | When |
+|-------|------|
+| `approved` | A reviewer approved and nobody's latest review requests changes |
+| `changes_requested` | A reviewer's latest review requests changes |
+| `conflict` | The PR has merge conflicts with its base branch |
+| `ready` | GitHub says the PR can be merged, after branch protection, conflicts or an outdated branch were holding it back |
+
+```
+🔔 Review Update!
+   PR: kubernetes/kubernetes#12345
+   Review: none → approved
+```
+
+Webhooks get the same shapes as CI changes, with `"type": "pr_review_change"` or `"pr_merge_state_change"` in the generic payload (and `Review:` / `Merge:` instead of `Status:` in Slack and Discord messages). With `--on fail` you only get `changes_requested` and `conflict`; with `--on success`, `approved` and `ready`.
+
+A few rules keep this quiet: nothing is announced the first time a PR is checked; `ready` isn't sent together with the CI or approval notification that caused it, and not at all for repositories without branch protection (there, "CI passed" already means it); dismissed reviews and new review rounds don't notify until someone approves or requests changes. `prw list` shows the last review and merge state in the `REVIEW` and `MERGE` columns, `prw wait --json` and the MCP tools include `merge_state`.
+
+Turn these off with `prw config set pr_events false`. They cost one extra request per PR per poll (the reviews), answered with a free `304` when nothing changed.
 
 ### Merged and closed PRs
 
