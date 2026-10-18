@@ -89,7 +89,8 @@ Legend — Impact: 1–5 · Effort: S (≤½ day), M (1–2 days), L (3+ days) �
 - ✅ #14 MCP server — done (`prw mcp`: 5 tools, progress + cancellation, protocol 2025-06-18/2025-03-26/2024-11-05; verified end-to-end over stdio against the real API with the token from `gh auth token`). Not yet tried inside a real MCP client.
 - ✅ #10 `prw watch --mine` / `--review-requested` — done (search-backed subscriptions refreshed every 5 min by `prw run`; verified live: 18 open PRs across 7 repos found, CI checked, cleanly removed by `unwatch --mine`)
 - 🆕 #18 **Report "no CI" instead of `pending` forever** (found while testing #10: 14 of 18 real PRs have zero checks — repos without CI, or stacked PRs whose base isn't `main`). Today `prw wait` / `wait_for_ci` would wait until the timeout on them. Needs a grace period after the last push (CI takes a moment to register checks) before concluding "no CI". Impact 4, effort S–M.
-- Next: #18, then #11 review & mergeability events
+- ✅ #18 `no_ci` state — done (0 checks + PR not updated for 3 min → `no_ci`; `prw wait` exits 4; no notification; verified live: 11 real PRs went from `pending` to `no_ci`, `prw wait` on one returns in 2s instead of the 30-min timeout)
+- Next: #11 review & mergeability events
 
 ## Planned
 

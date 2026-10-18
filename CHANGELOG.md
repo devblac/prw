@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Integration tests against the real GitHub API (`make integration`, build tag `integration`), run nightly by a new `Integration` workflow. They fail against the old status-only logic.
 
 ### Fixed
+- PRs without any CI are reported as `no_ci` instead of `pending` forever. Previously `prw wait` and the MCP `wait_for_ci` tool blocked until their timeout on such PRs (repositories without CI, or stacked PRs whose base branch runs none). A PR is `no_ci` once it has no checks or statuses at all and hasn't been updated for 3 minutes, so CI that is still registering after a push isn't mistaken for missing CI. `prw wait` exits `4` for it; `prw run` doesn't notify about it.
 - PR owner and repository names are compared case-insensitively (as on GitHub), so `DevBlac/PRW#5` and `devblac/prw#5` are no longer two separate watch-list entries.
 - Requests without a token no longer send an empty `Authorization: Bearer ` header, which GitHub rejects with 401 even for public repositories.
 - `MultiNotifier` (used whenever more than one notification channel is enabled) stopped at the first failing notifier. A down webhook silently suppressed the console and native notifications that were supposed to run after it; now every notifier always runs and their errors are combined.

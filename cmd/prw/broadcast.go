@@ -81,6 +81,7 @@ var broadcastCmd = &cobra.Command{
 				fmt.Printf("Error fetching status for %s/%s#%d: %v\n", pr.Owner, pr.Repo, pr.Number, err)
 				continue
 			}
+			github.ApplyNoCI(ci, ghPR.UpdatedAt, time.Now())
 
 			currentState := ci.State
 			previousState := github.NormalizeState(pr.LastKnownState)
