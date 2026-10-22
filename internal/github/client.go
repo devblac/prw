@@ -50,9 +50,17 @@ func (e *APIError) Error() string {
 type PullRequest struct {
 	Number int    `json:"number"`
 	Title  string `json:"title"`
+	State  string `json:"state"` // open or closed
+	Merged bool   `json:"merged"`
 	Head   struct {
 		SHA string `json:"sha"`
 	} `json:"head"`
+}
+
+// IsClosed reports whether the PR is closed, merged or not (GitHub reports both as
+// state "closed"; Merged distinguishes them).
+func (pr *PullRequest) IsClosed() bool {
+	return NormalizeState(pr.State) == "closed"
 }
 
 // CombinedStatus represents the combined legacy commit status for a commit.
@@ -258,7 +266,11 @@ func (c *Client) getJSON(path string, v interface{}) error {
 		return err
 	}
 
-	req.Header.Set("Authorization", "Bearer "+c.Token)
+	// GitHub rejects an empty "Bearer " with 401 even for public repos, so only send the
+	// header when there is a token.
+	if c.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
 
 	resp, err := c.HTTPClient.Do(req)

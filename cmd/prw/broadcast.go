@@ -42,7 +42,7 @@ var broadcastCmd = &cobra.Command{
 
 		token := cfg.GetToken()
 		if token == "" {
-			return fmt.Errorf("missing GITHUB_TOKEN; set it as an environment variable or configure it with 'prw config set github_token <token>'")
+			return errMissingToken
 		}
 
 		filter := strings.ToLower(strings.TrimSpace(broadcastFilter))
@@ -62,7 +62,7 @@ var broadcastCmd = &cobra.Command{
 
 		notifiers := []notify.Notifier{notify.NewConsoleNotifier()}
 		if !broadcastDryRun && webhookURL != "" {
-			notifiers = append(notifiers, notify.NewWebhookNotifier(webhookURL))
+			notifiers = append(notifiers, notify.NewWebhookNotifierWithFormat(webhookURL, cfg.WebhookFormat))
 		}
 		notifier := notify.NewMultiNotifier(notifiers...)
 
@@ -137,7 +137,9 @@ var broadcastCmd = &cobra.Command{
 			pr.LastChecked = time.Now()
 		}
 
-		if err := cfg.Save(); err != nil {
+		// Broadcast makes network calls for a while; persist only the polling state so
+		// PRs added or removed meanwhile (e.g. by `prw watch`) are not overwritten.
+		if err := config.SavePRStates(cfg.WatchedPRs); err != nil {
 			return fmt.Errorf("failed to save config: %w", err)
 		}
 

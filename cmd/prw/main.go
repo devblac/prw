@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -32,8 +33,9 @@ var rootCmd = &cobra.Command{
 	Long: `prw is a CLI tool that watches GitHub pull requests and notifies you
 when their CI status changes (pending → success/failure).
 
-Configure your GitHub token via GITHUB_TOKEN environment variable or
-in ~/.prw/config.json.`,
+If you are logged in with the GitHub CLI ('gh auth login'), prw uses that token
+automatically. Otherwise set GITHUB_TOKEN (or GH_TOKEN), or store a token with
+'prw config set github_token <token>'.`,
 }
 
 func init() {
@@ -58,6 +60,9 @@ var (
 	notifyNative bool
 )
 
+// errMissingToken is returned by commands that need GitHub access when no token is found.
+var errMissingToken = errors.New("missing GITHUB_TOKEN; run 'gh auth login', set GITHUB_TOKEN, or configure it with 'prw config set github_token <token>'")
+
 // newGitHubClient allows tests to inject a custom GitHub client.
 var newGitHubClient = github.NewClient
 
@@ -80,7 +85,7 @@ var watchCmd = &cobra.Command{
 
 		token := cfg.GetToken()
 		if token == "" {
-			return fmt.Errorf("missing GITHUB_TOKEN; set it as an environment variable or configure it with 'prw config set github_token <token>'")
+			return errMissingToken
 		}
 
 		// Try to fetch the PR to validate it exists and get title
@@ -97,13 +102,22 @@ var watchCmd = &cobra.Command{
 			Title:  pr.Title,
 		}
 
-		if !cfg.AddPR(watchedPR) {
-			fmt.Printf("PR %s/%s#%d is already being watched.\n", owner, repo, number)
+		// Re-read the config under a lock instead of saving the copy loaded before the
+		// network call: a running `prw run` may have updated the file in the meantime.
+		added := false
+		if err := config.Update(func(c *config.Config) error {
+			added = c.AddPR(watchedPR)
+			if !added {
+				return config.ErrNoChanges
+			}
 			return nil
+		}); err != nil {
+			return fmt.Errorf("failed to save config: %w", err)
 		}
 
-		if err := cfg.Save(); err != nil {
-			return fmt.Errorf("failed to save config: %w", err)
+		if !added {
+			fmt.Printf("PR %s/%s#%d is already being watched.\n", owner, repo, number)
+			return nil
 		}
 
 		fmt.Printf("Now watching: %s/%s#%d - %s\n", owner, repo, number, pr.Title)
@@ -168,18 +182,20 @@ var unwatchCmd = &cobra.Command{
 			return fmt.Errorf("invalid PR URL: %w", err)
 		}
 
-		cfg, err := config.Load()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
+		removed := false
+		if err := config.Update(func(c *config.Config) error {
+			removed = c.RemovePR(owner, repo, number)
+			if !removed {
+				return config.ErrNoChanges
+			}
+			return nil
+		}); err != nil {
+			return fmt.Errorf("failed to update config: %w", err)
 		}
 
-		if !cfg.RemovePR(owner, repo, number) {
+		if !removed {
 			fmt.Printf("PR %s/%s#%d is not being watched.\n", owner, repo, number)
 			return nil
-		}
-
-		if err := cfg.Save(); err != nil {
-			return fmt.Errorf("failed to save config: %w", err)
 		}
 
 		fmt.Printf("Stopped watching: %s/%s#%d\n", owner, repo, number)
@@ -201,7 +217,7 @@ Press Ctrl+C to stop.`,
 
 		token := cfg.GetToken()
 		if token == "" {
-			return fmt.Errorf("missing GITHUB_TOKEN; set it as an environment variable or configure it with 'prw config set github_token <token>'")
+			return errMissingToken
 		}
 
 		client := newGitHubClient(token)
@@ -209,7 +225,7 @@ Press Ctrl+C to stop.`,
 		// Build notifier chain
 		notifiers := []notify.Notifier{notify.NewConsoleNotifier()}
 		if cfg.WebhookURL != "" {
-			notifiers = append(notifiers, notify.NewWebhookNotifier(cfg.WebhookURL))
+			notifiers = append(notifiers, notify.NewWebhookNotifierWithFormat(cfg.WebhookURL, cfg.WebhookFormat))
 		}
 		// Add native notifications if enabled via flag or config
 		if notifyNative || cfg.NotificationNative {
@@ -269,15 +285,11 @@ var configShowCmd = &cobra.Command{
 		fmt.Printf("Config file: %s\n\n", path)
 		fmt.Printf("poll_interval_seconds: %d\n", cfg.PollIntervalSeconds)
 		fmt.Printf("webhook_url: %s\n", cfg.WebhookURL)
+		fmt.Printf("webhook_format: %s\n", notify.NormalizeWebhookFormat(cfg.WebhookFormat))
 		fmt.Printf("notification_filter: %s\n", cfg.NotificationFilter)
 		fmt.Printf("notification_native: %v\n", cfg.NotificationNative)
 
-		tokenSource := "not set"
-		if cfg.GitHubToken != "" {
-			tokenSource = "config file"
-		} else if os.Getenv("GITHUB_TOKEN") != "" {
-			tokenSource = "environment variable"
-		}
+		_, tokenSource := cfg.ResolveToken()
 		fmt.Printf("github_token: %s\n", tokenSource)
 
 		fmt.Printf("\nWatched PRs: %d\n", len(cfg.WatchedPRs))
@@ -293,6 +305,7 @@ var configSetCmd = &cobra.Command{
 Supported keys:
   - poll_interval_seconds: polling interval in seconds (default: 20)
   - webhook_url: URL to POST notifications to
+  - webhook_format: auto, slack, discord, or generic (default: auto, detected from the URL)
   - github_token: GitHub personal access token
   - notification_filter: change, fail, or success
   - notification_native: enable native OS notifications (true/false)`,
@@ -301,45 +314,51 @@ Supported keys:
 		key := args[0]
 		value := args[1]
 
-		cfg, err := config.Load()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
-
-		switch key {
-		case "poll_interval_seconds":
-			interval, err := strconv.Atoi(value)
-			if err != nil || interval <= 0 {
-				return fmt.Errorf("poll_interval_seconds must be a positive integer")
-			}
-			cfg.PollIntervalSeconds = interval
-		case "webhook_url":
-			cfg.WebhookURL = value
-		case "github_token":
-			cfg.GitHubToken = value
-		case "notification_filter":
-			filter := config.NormalizeNotificationFilter(value)
-			if !config.IsValidNotificationFilter(filter) {
-				return fmt.Errorf("notification_filter must be one of: change, fail, success")
-			}
-			cfg.NotificationFilter = filter
-		case "notification_native":
-			enabled, err := strconv.ParseBool(value)
-			if err != nil {
-				return fmt.Errorf("notification_native must be true or false")
-			}
-			cfg.NotificationNative = enabled
-		default:
-			return fmt.Errorf("unknown config key: %s", key)
-		}
-
-		if err := cfg.Save(); err != nil {
-			return fmt.Errorf("failed to save config: %w", err)
+		if err := config.Update(func(cfg *config.Config) error {
+			return applyConfigSet(cfg, key, value)
+		}); err != nil {
+			return err
 		}
 
 		fmt.Printf("Set %s = %s\n", key, value)
 		return nil
 	},
+}
+
+func applyConfigSet(cfg *config.Config, key, value string) error {
+	switch key {
+	case "poll_interval_seconds":
+		interval, err := strconv.Atoi(value)
+		if err != nil || interval <= 0 {
+			return fmt.Errorf("poll_interval_seconds must be a positive integer")
+		}
+		cfg.PollIntervalSeconds = interval
+	case "webhook_url":
+		cfg.WebhookURL = value
+	case "webhook_format":
+		format := notify.NormalizeWebhookFormat(value)
+		if !notify.IsValidWebhookFormat(format) {
+			return fmt.Errorf("webhook_format must be one of: auto, slack, discord, generic")
+		}
+		cfg.WebhookFormat = format
+	case "github_token":
+		cfg.GitHubToken = value
+	case "notification_filter":
+		filter := config.NormalizeNotificationFilter(value)
+		if !config.IsValidNotificationFilter(filter) {
+			return fmt.Errorf("notification_filter must be one of: change, fail, success")
+		}
+		cfg.NotificationFilter = filter
+	case "notification_native":
+		enabled, err := strconv.ParseBool(value)
+		if err != nil {
+			return fmt.Errorf("notification_native must be true or false")
+		}
+		cfg.NotificationNative = enabled
+	default:
+		return fmt.Errorf("unknown config key: %s", key)
+	}
+	return nil
 }
 
 var configUnsetCmd = &cobra.Command{
@@ -349,33 +368,35 @@ var configUnsetCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		key := args[0]
 
-		cfg, err := config.Load()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
-
-		switch key {
-		case "poll_interval_seconds":
-			cfg.PollIntervalSeconds = 20 // reset to default
-		case "webhook_url":
-			cfg.WebhookURL = ""
-		case "github_token":
-			cfg.GitHubToken = ""
-		case "notification_filter":
-			cfg.NotificationFilter = config.NotificationFilterChange
-		case "notification_native":
-			cfg.NotificationNative = false
-		default:
-			return fmt.Errorf("unknown config key: %s", key)
-		}
-
-		if err := cfg.Save(); err != nil {
-			return fmt.Errorf("failed to save config: %w", err)
+		if err := config.Update(func(cfg *config.Config) error {
+			return applyConfigUnset(cfg, key)
+		}); err != nil {
+			return err
 		}
 
 		fmt.Printf("Unset %s\n", key)
 		return nil
 	},
+}
+
+func applyConfigUnset(cfg *config.Config, key string) error {
+	switch key {
+	case "poll_interval_seconds":
+		cfg.PollIntervalSeconds = 20 // reset to default
+	case "webhook_url":
+		cfg.WebhookURL = ""
+	case "webhook_format":
+		cfg.WebhookFormat = ""
+	case "github_token":
+		cfg.GitHubToken = ""
+	case "notification_filter":
+		cfg.NotificationFilter = config.NotificationFilterChange
+	case "notification_native":
+		cfg.NotificationNative = false
+	default:
+		return fmt.Errorf("unknown config key: %s", key)
+	}
+	return nil
 }
 
 var versionCmd = &cobra.Command{

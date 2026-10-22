@@ -556,6 +556,28 @@ func jsonResponse(statusCode int, body string) *http.Response {
 	}
 }
 
+func TestGetJSON_OmitsAuthorizationWithoutToken(t *testing.T) {
+	var gotAuth []string
+	client := &Client{
+		BaseURL: "https://api.github.com",
+		HTTPClient: &http.Client{
+			Transport: &mockRoundTripperFunc{
+				fn: func(req *http.Request) (*http.Response, error) {
+					gotAuth = req.Header.Values("Authorization")
+					return jsonResponse(http.StatusOK, `{"number":1}`), nil
+				},
+			},
+		},
+	}
+
+	if _, err := client.GetPullRequest("owner", "repo", 1); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(gotAuth) != 0 {
+		t.Errorf("expected no Authorization header without a token, got %q", gotAuth)
+	}
+}
+
 func TestGetCheckRuns_Paginates(t *testing.T) {
 	var requestedPages []string
 	client := &Client{

@@ -31,6 +31,7 @@ The tool is deliberately minimal. It does one thing well: watch PRs and tell you
 
 ## Features
 
+- **Auto-cleanup**: merged/closed PRs are notified once and dropped from the watch list by `prw run`
 - **Watch multiple PRs** from different repositories simultaneously
 - **Instant notifications** when CI status changes (pending, success, failure, error)
 - **Chat-ops broadcast**: one command to push current PR status to Slack/Discord (`prw broadcast`)
@@ -69,13 +70,15 @@ Each release includes binaries for:
 - Windows (amd64)
 
 ```bash
-# Download and extract (example for Linux amd64)
-curl -LO https://github.com/devblac/prw/releases/download/v0.2.0/prw_v0.2.0_linux_amd64.tar.gz
-tar -xzf prw_v0.2.0_linux_amd64.tar.gz
+# Example for Linux amd64. Release asset names include the version, so resolve the
+# latest tag first instead of hardcoding one that will go stale.
+VERSION=$(curl -fsSL https://api.github.com/repos/devblac/prw/releases/latest | grep '"tag_name"' | cut -d'"' -f4)
+curl -LO "https://github.com/devblac/prw/releases/download/${VERSION}/prw_${VERSION}_linux_amd64.tar.gz"
+tar -xzf "prw_${VERSION}_linux_amd64.tar.gz"
 
 # Make it executable and move to PATH
-chmod +x prw_v0.2.0_linux_amd64
-sudo mv prw_v0.2.0_linux_amd64 /usr/local/bin/prw
+chmod +x "prw_${VERSION}_linux_amd64"
+sudo mv "prw_${VERSION}_linux_amd64" /usr/local/bin/prw
 
 # Verify installation
 prw version
@@ -108,13 +111,15 @@ make install
 
 ### 1. Set up your GitHub token
 
-`prw` needs a GitHub Personal Access Token to query PR status. A classic token only requires `repo` scope (or `public_repo` for public repos only). Fine-grained tokens need read access to **Pull requests**, **Commit statuses**, and **Checks**.
+**If you use the [GitHub CLI](https://cli.github.com/) and have run `gh auth login`, there is nothing to do** — `prw` reuses that login automatically.
+
+Otherwise `prw` needs a GitHub Personal Access Token. A classic token only requires `repo` scope (or `public_repo` for public repos only). Fine-grained tokens need read access to **Pull requests**, **Commit statuses**, and **Checks**.
 
 `prw` combines GitHub Actions check runs with legacy commit statuses (Jenkins, CircleCI, etc.), so it works regardless of which CI you use.
 
 Create a token at: https://github.com/settings/tokens
 
-Then export it:
+Then export it (`GH_TOKEN` works too):
 
 ```bash
 export GITHUB_TOKEN="ghp_your_token_here"
@@ -125,6 +130,8 @@ Alternatively, store it in the config file:
 ```bash
 prw config set github_token "ghp_your_token_here"
 ```
+
+When several are available, `prw` uses the first one found in this order: config file, `GITHUB_TOKEN`, `GH_TOKEN`, `gh auth token`. `prw config show` tells you which one is in use.
 
 ### 2. Watch a pull request
 
@@ -249,6 +256,7 @@ prw config set webhook_url https://hooks.slack.com/services/YOUR/WEBHOOK/URL
 
 - **`poll_interval_seconds`**: How often to poll GitHub (default: 20)
 - **`webhook_url`**: Optional HTTP endpoint for notifications
+- **`webhook_format`**: Payload format: `auto` (default, detected from the URL), `slack`, `discord`, or `generic`
 - **`notification_native`**: Enable native OS notifications (true/false, default: false)
 - **`github_token`**: GitHub Personal Access Token (prefer env var `GITHUB_TOKEN`)
 
@@ -282,13 +290,23 @@ prw config set notification_native true
 **Platform requirements:**
 - **macOS**: Uses `osascript` (built-in)
 - **Linux**: Requires `notify-send` (usually from `libnotify-bin` package)
-- **Windows**: Uses PowerShell (built-in)
+- **Windows**: Uses Windows PowerShell (built-in) to show a toast. If nothing appears, check that Focus Assist / Do Not Disturb is off
 
 If the required tool is missing, `prw` will log a warning and continue polling without crashing. Native notifications work alongside console and webhook notifications—you can enable all three simultaneously.
 
 ### Webhooks
 
-If you configure a `webhook_url`, `prw` will POST a JSON payload on every status change:
+If you configure a `webhook_url`, `prw` will POST to it on every status change. The payload shape is chosen from the URL:
+
+| URL | Format | What you get |
+|-----|--------|--------------|
+| `https://hooks.slack.com/...` | `slack` | A message with the PR link, status transition and failed checks |
+| `https://discord.com/api/webhooks/...` | `discord` | A colored embed (green / red / yellow) with the same details |
+| anything else | `generic` | Raw JSON (below), for your own services |
+
+Override the detection with `prw config set webhook_format <auto|slack|discord|generic>` — for example `slack` for Slack-compatible services such as Mattermost.
+
+The `generic` payload:
 
 ```json
 {
@@ -298,17 +316,17 @@ If you configure a `webhook_url`, `prw` will POST a JSON payload on every status
   "pr_number": 12345,
   "title": "Fix controller race condition",
   "previous_state": "pending",
-  "current_state": "success",
+  "current_state": "failure",
   "sha": "abc123def456",
+  "failed_checks": [
+    { "name": "Unit Tests", "url": "https://github.com/kubernetes/kubernetes/runs/1" }
+  ],
   "url": "https://github.com/kubernetes/kubernetes/pull/12345",
   "timestamp": "2025-12-06T10:32:15Z"
 }
 ```
 
-This works with:
-- **Slack**: Use incoming webhooks
-- **Discord**: Use webhook URLs
-- **Custom services**: Any endpoint that accepts JSON POST
+`failed_checks` is omitted when nothing failed. If the endpoint rejects the request, the error includes the response body (e.g. Slack's `invalid_payload`), and requests time out after 10 seconds.
 
 ### Notification filters
 
@@ -327,9 +345,13 @@ prw run --on change
 
 The same setting can be persisted via `prw config set notification_filter <value>`.
 
+### Merged and closed PRs
+
+Once `prw run` sees that a watched PR was merged or closed, it sends one final notification (`CurrentState` is `merged` or `closed`, so you'll see e.g. `success → merged`) and removes the PR from the watch list — regardless of `--on`/`notification_filter`, since a merge is a lifecycle event, not a CI result. This keeps the watch list from growing forever. `prw list` and `prw broadcast` are unaffected: a PR only drops out once `prw run` has actually polled it.
+
 ## Troubleshooting
 
-- **missing GITHUB_TOKEN**: set via env var or `prw config set github_token <token>`.
+- **missing GITHUB_TOKEN**: run `gh auth login`, set `GITHUB_TOKEN`/`GH_TOKEN`, or use `prw config set github_token <token>`. `prw config show` shows which source (if any) was found.
 - **Webhook fails**: verify URL, check HTTP 2xx, try `prw broadcast --dry-run` first.
 - **Rate limits**: increase `poll_interval_seconds`.
 
@@ -366,6 +388,14 @@ make build
 ```bash
 make test
 ```
+
+### Run integration tests
+
+```bash
+make integration
+```
+
+These hit the real GitHub API (using `GITHUB_TOKEN` if set, unauthenticated otherwise) against fixed objects in this repo, and also run nightly in CI. They are excluded from `make test`.
 
 ### Check coverage
 
