@@ -93,7 +93,7 @@ func TestPrintChecks(t *testing.T) {
 
 func TestChecksExitCodes(t *testing.T) {
 	for state, want := range map[string]int{
-		"success": 0, "merged": 0, "failure": exitWaitFailed, "error": exitWaitFailed,
+		"success": 0, "merged": 0, "closed": exitWaitError, "failure": exitWaitFailed, "error": exitWaitFailed,
 		github.StateNoCI: exitWaitNoCI, "pending": exitChecksPending,
 	} {
 		r := &checksReport{Owner: "o", Repo: "r", Number: 1, State: state}

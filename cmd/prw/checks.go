@@ -48,7 +48,7 @@ ones, then the rest. The PR does not need to be on the watch list.
 Exit codes:
   0  all checks passed
   1  a check failed
-  3  error (invalid URL, API error)
+  3  error (invalid URL, API error, PR closed without merging)
   4  the PR has no CI
   8  checks are still running`,
 	Example: `  prw checks https://github.com/owner/repo/pull/123
@@ -208,8 +208,11 @@ func checkRunBucket(run github.CheckRun) string {
 func (r *checksReport) exitErr() error {
 	pr := fmt.Sprintf("%s/%s#%d", r.Owner, r.Repo, r.Number)
 	switch r.State {
-	case "success", "merged", "closed":
+	case "success", "merged":
 		return nil
+	case "closed":
+		// Like `prw wait`: an abandoned PR must not pass `prw checks "$PR" && ...`.
+		return waitErrorf(exitWaitError, "%s was closed without merging", pr)
 	case "failure", "error":
 		return waitErrorf(exitWaitFailed, "CI of %s finished with %s", pr, r.State)
 	case github.StateNoCI:
