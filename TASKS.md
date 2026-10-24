@@ -94,7 +94,8 @@ Legend — Impact: 1–5 · Effort: S (≤½ day), M (1–2 days), L (3+ days) �
 - ✅ #11 Review & mergeability events — done (approved / changes_requested / conflict / ready; verified live: devblac/prw#12 `ready`, cli/cli#14727 `blocked`, a simulated blocked → ready notified once and ready → blocked stayed silent)
 - ✅ Codex follow-ups on #18/#19 — failed head re-check no longer accepted as "unchanged"; review-request PRs only dropped when proven withdrawn (open or 404), never on a cancelled or failed lookup; all review pages read.
 - ✅ #12 `prw checks <PR>` — done (buckets fail/cancel/pending/pass/neutral/skipping, durations, links, `--json`, exit 8 while running; verified live on devblac/docker-lint#5, zephyrproject-rtos/zephyr#105183 — 35 checks, superseded run hidden — and devblac/prw#13)
-- Next: #15 failed job log excerpt
+- ✅ #15 Failed job log excerpt — done (`--logs` on `checks`/`wait`, MCP `get_failed_logs`; parser tested on a real staticcheck failure log; verified live on cloudposse/atmos#3476, #3422 and #2199 — a commit status — and over MCP stdio)
+- Next: #16 flakiness detection + status history
 
 ## Planned
 

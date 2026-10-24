@@ -243,7 +243,7 @@ prw wait "$PR_URL" --timeout 15m --json
 | `4` | The PR has **no CI**: no checks or statuses were reported within 3 minutes of its last update (see below) |
 | `130` | Interrupted (Ctrl+C) |
 
-It fails fast — as soon as one check fails it exits `1` with the failed checks and their links, without waiting for the rest. If someone pushes to the PR meanwhile, it follows the new head commit. Transient errors (network, 5xx, rate limits) are retried up to 3 times in a row. Polls every 15s by default (`--interval`).
+It fails fast — as soon as one check fails it exits `1` with the failed checks and their links, without waiting for the rest. If someone pushes to the PR meanwhile, it follows the new head commit. Transient errors (network, 5xx, rate limits) are retried up to 3 times in a row. Polls every 15s by default (`--interval`). Add `--logs` to also get the output of the failed step of each failed job (see below; `failed_logs` in `--json`).
 
 With `--json`, stdout is a single object:
 
@@ -285,6 +285,22 @@ abc1234 · failure · 1 fail, 1 pending, 3 pass · merge: blocked
 
 Runs superseded by a newer run of the same check (e.g. cancelled by `concurrency: cancel-in-progress`) are left out, as they don't count. `--json` prints the same as an object with a `checks` array (`name`, `bucket`, `state`, `kind`, `url`, `started_at`, `completed_at`). Exit codes match `prw wait` — `0` passed (or merged), `1` failed, `3` error or closed without merging, `4` no CI — plus `8` while checks are still running.
 
+### Why did it fail? `--logs`
+
+`prw checks --logs` (and `prw wait --logs`) also print, for each failed GitHub Actions job, the output of the step that failed: its last lines up to the error, with timestamps, colors and runner markup stripped — what you'd scroll to in the browser.
+
+```
+$ prw checks https://github.com/owner/repo/pull/123 --logs
+…
+── Lint · step: staticcheck ./... ──
+   -: internal error in importing "cmp" (cannot decode "cmp", export data version 5 is greater than maximum supported version 4)
+   -: internal error in importing "math/bits" (…)
+   Error: Process completed with exit code 1.
+   Full log: https://github.com/owner/repo/actions/runs/…/job/…
+```
+
+`--log-lines` sets how many lines (default 40). At most 5 job logs are downloaded per command. Checks from other CI systems (and legacy commit statuses) have no log in the API, so you get their link instead. Logs expire after GitHub's retention period (90 days by default). Fine-grained tokens need the **Actions: read** permission.
+
 ## Using prw from AI agents: `prw mcp`
 
 `prw mcp` runs a [Model Context Protocol](https://modelcontextprotocol.io) server over stdio, so coding agents can check a PR's CI and wait for it after pushing — and read which checks failed — without screen-scraping `gh` output.
@@ -310,6 +326,7 @@ Tools:
 | Tool | What it does |
 |------|--------------|
 | `get_ci_status` | Current state of a PR (`success`, `failure`, `error`, `pending`, `merged`, `closed`, `no_ci`), check counts, failed checks with links. Returns immediately. |
+| `get_failed_logs` | For each failed GitHub Actions job, the output of the step that failed (last `max_lines` lines up to the error, default 40). What an agent needs to fix the failure without a browser. |
 | `wait_for_ci` | Blocks until CI finishes (`timeout_seconds` default 600, max 3600). Fails fast on the first failed check, follows new pushes, sends progress notifications. On timeout it returns `pending` with `timed_out: true` so the agent can call it again. |
 | `list_watched` | PRs on the local watch list with their last known state. |
 | `watch_pr` / `unwatch_pr` | Add or remove a PR from the watch list (a running `prw run` picks it up). |
