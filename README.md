@@ -283,7 +283,7 @@ abc1234 · failure · 1 fail, 1 pending, 3 pass · merge: blocked
 ✅ pass     ci/jenkins                    https://jenkins.example.com/job/…
 ```
 
-Runs superseded by a newer run of the same check (e.g. cancelled by `concurrency: cancel-in-progress`) are left out, as they don't count. `--json` prints the same as an object with a `checks` array (`name`, `bucket`, `state`, `kind`, `url`, `started_at`, `completed_at`). Exit codes match `prw wait` — `0` passed, `1` failed, `3` error, `4` no CI — plus `8` while checks are still running.
+Runs superseded by a newer run of the same check (e.g. cancelled by `concurrency: cancel-in-progress`) are left out, as they don't count. `--json` prints the same as an object with a `checks` array (`name`, `bucket`, `state`, `kind`, `url`, `started_at`, `completed_at`). Exit codes match `prw wait` — `0` passed (or merged), `1` failed, `3` error or closed without merging, `4` no CI — plus `8` while checks are still running.
 
 ### Why did it fail? `--logs`
 
