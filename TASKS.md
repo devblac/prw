@@ -92,7 +92,9 @@ Legend — Impact: 1–5 · Effort: S (≤½ day), M (1–2 days), L (3+ days) �
 - ✅ #18 `no_ci` state — done (0 checks + PR not updated for 3 min → `no_ci`; `prw wait` exits 4; no notification; verified live: 11 real PRs went from `pending` to `no_ci`, `prw wait` on one returns in 2s instead of the 30-min timeout)
 - ✅ Codex review feedback on #6, #7, #13–#17 — done in `fix/codex-review`: superseded check runs (verified live on zephyrproject-rtos/zephyr#105183: was `failure`, now `success`), head re-check in `prw wait`, context propagation into every API request, closed review-request PRs keep their notification, no `no_ci` flapping, ETag cache eviction, GovSlack.
 - ✅ #11 Review & mergeability events — done (approved / changes_requested / conflict / ready; verified live: devblac/prw#12 `ready`, cli/cli#14727 `blocked`, a simulated blocked → ready notified once and ready → blocked stayed silent)
-- Next: #12 `prw checks <PR>`
+- ✅ Codex follow-ups on #18/#19 — failed head re-check no longer accepted as "unchanged"; review-request PRs only dropped when proven withdrawn (open or 404), never on a cancelled or failed lookup; all review pages read.
+- ✅ #12 `prw checks <PR>` — done (buckets fail/cancel/pending/pass/neutral/skipping, durations, links, `--json`, exit 8 while running; verified live on devblac/docker-lint#5, zephyrproject-rtos/zephyr#105183 — 35 checks, superseded run hidden — and devblac/prw#13)
+- Next: #15 failed job log excerpt
 
 ## Planned
 
