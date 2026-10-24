@@ -2,7 +2,9 @@ package watcher
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -49,7 +51,8 @@ type SyncResult struct {
 // closed are kept instead (for "mine" that's always the reason), so that `prw run`
 // still notifies about it before dropping them. PRs watched by hand are never touched.
 //
-// It returns an error only if every search failed; other problems are Warnings.
+// It returns an error if every search failed or ctx was cancelled (then nothing is
+// changed); other problems are Warnings.
 func SyncAutoWatch(ctx context.Context, client Searcher, sources []string) (*SyncResult, error) {
 	result := &SyncResult{}
 	found := map[string]*github.SearchResult{}
@@ -76,7 +79,10 @@ func SyncAutoWatch(ctx context.Context, client Searcher, sources []string) (*Syn
 	if len(found) == 0 && lastErr != nil {
 		return result, lastErr
 	}
-	closed := closedReviewRequests(ctx, client, found)
+	withdrawn := withdrawnReviewRequests(ctx, client, found)
+	if err := ctx.Err(); err != nil {
+		return result, err // interrupted: lookups that didn't finish prove nothing
+	}
 
 	err := config.Update(func(c *config.Config) error {
 		changed := false
@@ -102,7 +108,7 @@ func SyncAutoWatch(ctx context.Context, client Searcher, sources []string) (*Syn
 			kept := c.WatchedPRs[:0]
 			for _, pr := range c.WatchedPRs {
 				key := prKey(pr.Owner, pr.Repo, pr.Number)
-				if pr.Source == source && !matches[key] && !closed[key] {
+				if pr.Source == source && !matches[key] && withdrawn[key] {
 					result.Removed = append(result.Removed, pr)
 					changed = true
 					continue
@@ -122,11 +128,14 @@ func SyncAutoWatch(ctx context.Context, client Searcher, sources []string) (*Syn
 	return result, nil
 }
 
-// closedReviewRequests finds the review-request PRs that no longer match their search
-// because they were merged or closed: the search only returns open PRs, so they look
-// just like withdrawn requests. It runs before the config is locked, as it makes API
-// calls. A PR whose lookup fails is not reported, i.e. it's removed as before.
-func closedReviewRequests(ctx context.Context, client Searcher, found map[string]*github.SearchResult) map[string]bool {
+// withdrawnReviewRequests finds the review-request PRs that can be dropped: they no
+// longer match their search and are still open (so the request was withdrawn or
+// answered), or are gone (404). The search only returns open PRs, so a merged or
+// closed PR looks the same until it's looked up; those are kept for the regular check
+// to notify about. A failed lookup (network, rate limit, cancellation) proves nothing,
+// so that PR is kept until the next sync. It runs before the config is locked, as it
+// makes API calls.
+func withdrawnReviewRequests(ctx context.Context, client Searcher, found map[string]*github.SearchResult) map[string]bool {
 	res, ok := found[config.AutoWatchReviewRequested]
 	if !ok || res.Incomplete {
 		return nil // nothing will be removed
@@ -139,17 +148,22 @@ func closedReviewRequests(ctx context.Context, client Searcher, found map[string
 	for _, pr := range res.PRs {
 		matches[prKey(pr.Owner, pr.Repo, pr.Number)] = true
 	}
-	closed := map[string]bool{}
+	withdrawn := map[string]bool{}
 	for _, pr := range cfg.WatchedPRs {
 		key := prKey(pr.Owner, pr.Repo, pr.Number)
 		if pr.Source != config.AutoWatchReviewRequested || matches[key] {
 			continue
 		}
-		if ghPR, err := client.GetPullRequest(ctx, pr.Owner, pr.Repo, pr.Number); err == nil && ghPR.IsClosed() {
-			closed[key] = true
+		ghPR, err := client.GetPullRequest(ctx, pr.Owner, pr.Repo, pr.Number)
+		var apiErr *github.APIError
+		switch {
+		case err == nil:
+			withdrawn[key] = !ghPR.IsClosed()
+		case errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound:
+			withdrawn[key] = true // deleted, or no longer visible to us
 		}
 	}
-	return closed
+	return withdrawn
 }
 
 func prKey(owner, repo string, number int) string {
@@ -172,6 +186,9 @@ func (w *Watcher) syncAutoWatch(ctx context.Context) {
 		return
 	}
 	res, err := SyncAutoWatch(ctx, searcher, sources)
+	if ctx.Err() != nil {
+		return // stopping; the failed searches and lookups aren't worth reporting
+	}
 	for _, warning := range res.Warnings {
 		fmt.Printf("Warning: auto-watch: %s\n", warning)
 	}

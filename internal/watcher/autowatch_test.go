@@ -115,6 +115,7 @@ func TestSyncAutoWatch_DropsWithdrawnReviewRequestsButKeepsMine(t *testing.T) {
 		config.AutoWatchMine:            found(),
 		config.AutoWatchReviewRequested: found(21),
 	}}
+	s.prs = map[string]*github.PullRequest{"owner/repo/20": openReviewPR(20)}
 
 	res, err := SyncAutoWatch(context.Background(), s, []string{config.AutoWatchMine, config.AutoWatchReviewRequested})
 	if err != nil {
@@ -328,4 +329,86 @@ func TestRunOnce_NotifiesReviewRequestMergedWhileStopped(t *testing.T) {
 	if got := watchList(t); got != "" {
 		t.Errorf("watch list = %q, want the merged PR dropped after notifying", got)
 	}
+}
+
+func openReviewPR(number int) *github.PullRequest {
+	pr := newPR(number, fmt.Sprintf("sha%d", number))
+	pr.State = "open"
+	return pr
+}
+
+// failingLookups answers GetPullRequest with errs (keyed like prs) for the given PRs.
+type failingLookups struct {
+	*fakeSearcher
+	errs map[string]error
+}
+
+func (f *failingLookups) GetPullRequest(ctx context.Context, owner, repo string, number int) (*github.PullRequest, error) {
+	if err := f.errs[fmt.Sprintf("%s/%s/%d", owner, repo, number)]; err != nil {
+		return nil, err
+	}
+	return f.fakeSearcher.GetPullRequest(ctx, owner, repo, number)
+}
+
+func TestSyncAutoWatch_RemovesReviewRequestsOnlyWhenProvenWithdrawn(t *testing.T) {
+	useTempConfig(t)
+	reviewPR := func(n int) config.WatchedPR {
+		return config.WatchedPR{Owner: "owner", Repo: "repo", Number: n, Source: config.AutoWatchReviewRequested}
+	}
+	saveConfig(t, &config.Config{
+		AutoWatch:  []string{config.AutoWatchReviewRequested},
+		WatchedPRs: []config.WatchedPR{reviewPR(1), reviewPR(2), reviewPR(3)},
+	})
+	s := &failingLookups{
+		fakeSearcher: &fakeSearcher{results: map[string]*github.SearchResult{config.AutoWatchReviewRequested: found()}},
+		errs: map[string]error{
+			"owner/repo/2": &github.APIError{StatusCode: 404}, // deleted or no access
+			"owner/repo/3": errors.New("connection reset"),
+		},
+	}
+	s.prs = map[string]*github.PullRequest{"owner/repo/1": openReviewPR(1)}
+
+	if _, err := SyncAutoWatch(context.Background(), s, []string{config.AutoWatchReviewRequested}); err != nil {
+		t.Fatal(err)
+	}
+	if got := watchList(t); got != "3:review-requested" {
+		t.Errorf("watch list = %q, want #1 (open) and #2 (404) dropped, #3 (lookup failed) kept", got)
+	}
+}
+
+func TestSyncAutoWatch_InterruptedDuringLookupsChangesNothing(t *testing.T) {
+	useTempConfig(t)
+	saveConfig(t, &config.Config{
+		AutoWatch: []string{config.AutoWatchReviewRequested},
+		WatchedPRs: []config.WatchedPR{
+			{Owner: "owner", Repo: "repo", Number: 1, Source: config.AutoWatchReviewRequested},
+			{Owner: "owner", Repo: "repo", Number: 2, Source: config.AutoWatchReviewRequested},
+		},
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := &failingLookups{
+		fakeSearcher: &fakeSearcher{results: map[string]*github.SearchResult{config.AutoWatchReviewRequested: found(9)}},
+	}
+	s.prs = map[string]*github.PullRequest{"owner/repo/1": openReviewPR(1)}
+	s.errs = map[string]error{"owner/repo/2": context.Canceled}
+	cancelOnLookup := &cancellingSearcher{failingLookups: s, cancel: cancel}
+
+	if _, err := SyncAutoWatch(ctx, cancelOnLookup, []string{config.AutoWatchReviewRequested}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if got := watchList(t); got != "1:review-requested 2:review-requested" {
+		t.Errorf("watch list = %q, want it untouched (no removals, no additions)", got)
+	}
+}
+
+// cancellingSearcher cancels the context (Ctrl-C) when the first PR lookup starts.
+type cancellingSearcher struct {
+	*failingLookups
+	cancel context.CancelFunc
+}
+
+func (c *cancellingSearcher) GetPullRequest(ctx context.Context, owner, repo string, number int) (*github.PullRequest, error) {
+	c.cancel()
+	return c.failingLookups.GetPullRequest(ctx, owner, repo, number)
 }

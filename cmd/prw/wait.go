@@ -220,6 +220,12 @@ func waitForCI(ctx context.Context, client ciClient, owner, repo string, number 
 	for {
 		delay := interval
 		state, err := pollOnce(ctx, client, result)
+		moved := false
+		if err == nil && state != "pending" {
+			// Errors confirming the head are handled like poll errors: retried, or
+			// reported as a timeout / interruption, never taken as "head unchanged".
+			moved, err = headMoved(ctx, client, result)
+		}
 		if err != nil && ctx.Err() != nil {
 			return stopped(), nil // the timeout or Ctrl-C cancelled the poll's requests
 		}
@@ -242,11 +248,11 @@ func waitForCI(ctx context.Context, client ciClient, owner, repo string, number 
 			fmt.Fprintf(progress, "⚠️  %v (retrying)\n", err)
 		} else {
 			consecutiveErrors = 0
+			if moved {
+				fmt.Fprintf(progress, "↻ %s/%s#%d: new commit pushed; waiting for its CI\n", owner, repo, number)
+				continue
+			}
 			if state != "pending" {
-				if headMoved(ctx, client, result) {
-					fmt.Fprintf(progress, "↻ %s/%s#%d: new commit pushed; waiting for its CI\n", owner, repo, number)
-					continue
-				}
 				return finish(), nil
 			}
 			line := fmt.Sprintf("⏳ %s/%s#%d: %s", owner, repo, number, pendingSummary(result))
@@ -265,14 +271,17 @@ func waitForCI(ctx context.Context, client ciClient, owner, repo string, number 
 
 // headMoved reports whether a new commit was pushed to the PR since result was
 // polled. The CI lookup follows the PR lookup, so a push in between would otherwise
-// return the result of the previous commit. Merged or closed PRs don't move; if the
-// check fails, the result stands. Unchanged PRs answer 304, so this costs no quota.
-func headMoved(ctx context.Context, client ciClient, result *waitResult) bool {
+// return the result of the previous commit. Merged or closed PRs don't move.
+// Unchanged PRs answer 304, so this costs no quota.
+func headMoved(ctx context.Context, client ciClient, result *waitResult) (bool, error) {
 	if result.State == "merged" || result.State == "closed" {
-		return false
+		return false, nil
 	}
 	pr, err := client.GetPullRequest(ctx, result.Owner, result.Repo, result.Number)
-	return err == nil && pr.Head.SHA != result.SHA
+	if err != nil {
+		return false, fmt.Errorf("failed to confirm the PR head: %w", err)
+	}
+	return pr.Head.SHA != result.SHA, nil
 }
 
 // pollOnce refreshes result from GitHub and returns the current state.

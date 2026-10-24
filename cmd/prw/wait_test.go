@@ -28,6 +28,8 @@ type pollStep struct {
 	// movedTo, if set, is what the PR looks like when waitForCI re-reads it to
 	// confirm the head hasn't moved, i.e. a push that landed during this poll.
 	movedTo *github.PullRequest
+	// revalidate, if set, runs on that re-read and its error is returned.
+	revalidate func() error
 }
 
 // scriptedClient returns steps[i] on the i-th poll (repeating the last one). A PR
@@ -52,6 +54,11 @@ func (c *scriptedClient) GetPullRequest(ctx context.Context, owner, repo string,
 		github.ApplyNoCI(ci, c.current.pr.UpdatedAt, time.Now())
 		if ci.State != "pending" {
 			c.revalidations++
+			if c.current.revalidate != nil {
+				if err := c.current.revalidate(); err != nil {
+					return nil, err
+				}
+			}
 			if c.current.movedTo != nil {
 				return c.current.movedTo, nil
 			}
