@@ -387,7 +387,7 @@ If you configure a `webhook_url`, `prw` will POST to it on every status change. 
 
 | URL | Format | What you get |
 |-----|--------|--------------|
-| `https://hooks.slack.com/...` | `slack` | A message with the PR link, status transition and failed checks |
+| `https://hooks.slack.com/...` (or GovSlack `hooks.slack-gov.com`) | `slack` | A message with the PR link, status transition and failed checks |
 | `https://discord.com/api/webhooks/...` | `discord` | A colored embed (green / red / yellow) with the same details |
 | anything else | `generic` | Raw JSON (below), for your own services |
 

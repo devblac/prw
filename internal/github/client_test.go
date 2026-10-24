@@ -1,6 +1,7 @@
 package github
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -144,7 +145,7 @@ func TestGetPullRequest(t *testing.T) {
 				},
 			}
 
-			pr, err := client.GetPullRequest("owner", "repo", 123)
+			pr, err := client.GetPullRequest(context.Background(), "owner", "repo", 123)
 			if tt.wantErr {
 				if err == nil {
 					t.Error("expected error, got nil")
@@ -228,7 +229,7 @@ func TestGetCombinedStatus(t *testing.T) {
 				},
 			}
 
-			status, err := client.GetCombinedStatus("owner", "repo", "abc123")
+			status, err := client.GetCombinedStatus(context.Background(), "owner", "repo", "abc123")
 			if tt.wantErr {
 				if err == nil {
 					t.Error("expected error, got nil")
@@ -333,7 +334,7 @@ func TestGetPullRequest_NetworkError(t *testing.T) {
 		},
 	}
 
-	_, err := client.GetPullRequest("owner", "repo", 123)
+	_, err := client.GetPullRequest(context.Background(), "owner", "repo", 123)
 	if err == nil {
 		t.Error("expected error for network failure, got nil")
 	}
@@ -355,7 +356,7 @@ func TestGetCombinedStatus_NetworkError(t *testing.T) {
 		},
 	}
 
-	_, err := client.GetCombinedStatus("owner", "repo", "abc123")
+	_, err := client.GetCombinedStatus(context.Background(), "owner", "repo", "abc123")
 	if err == nil {
 		t.Error("expected error for network failure, got nil")
 	}
@@ -381,7 +382,7 @@ func TestGetPullRequest_InvalidJSON(t *testing.T) {
 		},
 	}
 
-	_, err := client.GetPullRequest("owner", "repo", 123)
+	_, err := client.GetPullRequest(context.Background(), "owner", "repo", 123)
 	if err == nil {
 		t.Error("expected error for invalid JSON, got nil")
 	}
@@ -407,7 +408,7 @@ func TestGetCombinedStatus_InvalidJSON(t *testing.T) {
 		},
 	}
 
-	_, err := client.GetCombinedStatus("owner", "repo", "abc123")
+	_, err := client.GetCombinedStatus(context.Background(), "owner", "repo", "abc123")
 	if err == nil {
 		t.Error("expected error for invalid JSON, got nil")
 	}
@@ -433,7 +434,7 @@ func TestGetPullRequest_ErrorResponse(t *testing.T) {
 		},
 	}
 
-	_, err := client.GetPullRequest("owner", "repo", 123)
+	_, err := client.GetPullRequest(context.Background(), "owner", "repo", 123)
 	if err == nil {
 		t.Error("expected error for 403 response, got nil")
 	}
@@ -459,7 +460,7 @@ func TestGetCombinedStatus_ErrorResponse(t *testing.T) {
 		},
 	}
 
-	_, err := client.GetCombinedStatus("owner", "repo", "abc123")
+	_, err := client.GetCombinedStatus(context.Background(), "owner", "repo", "abc123")
 	if err == nil {
 		t.Error("expected error for 404 response, got nil")
 	}
@@ -539,7 +540,7 @@ func TestGetCombinedStatus_EmptyState(t *testing.T) {
 		},
 	}
 
-	status, err := client.GetCombinedStatus("owner", "repo", "abc123")
+	status, err := client.GetCombinedStatus(context.Background(), "owner", "repo", "abc123")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -570,7 +571,7 @@ func TestGetJSON_OmitsAuthorizationWithoutToken(t *testing.T) {
 		},
 	}
 
-	if _, err := client.GetPullRequest("owner", "repo", 1); err != nil {
+	if _, err := client.GetPullRequest(context.Background(), "owner", "repo", 1); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(gotAuth) != 0 {
@@ -607,7 +608,7 @@ func TestGetCheckRuns_Paginates(t *testing.T) {
 		},
 	}
 
-	runs, err := client.GetCheckRuns("owner", "repo", "abc123")
+	runs, err := client.GetCheckRuns(context.Background(), "owner", "repo", "abc123")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -632,7 +633,7 @@ func TestGetCheckRuns_ForbiddenHint(t *testing.T) {
 		},
 	}
 
-	_, err := client.GetCheckRuns("owner", "repo", "abc123")
+	_, err := client.GetCheckRuns(context.Background(), "owner", "repo", "abc123")
 	if err == nil {
 		t.Fatal("expected error for 403 response, got nil")
 	}
@@ -662,7 +663,7 @@ func TestFetchCIStatus_ActionsOnlyRepo(t *testing.T) {
 		},
 	}
 
-	ci, err := FetchCIStatus(client, "owner", "repo", "abc123")
+	ci, err := FetchCIStatus(context.Background(), client, "owner", "repo", "abc123")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -690,7 +691,7 @@ func TestFetchCIStatus_PropagatesErrors(t *testing.T) {
 		},
 	}
 
-	_, err := FetchCIStatus(client, "owner", "repo", "abc123")
+	_, err := FetchCIStatus(context.Background(), client, "owner", "repo", "abc123")
 	if err == nil || !strings.Contains(err.Error(), "check runs") {
 		t.Errorf("expected check runs error, got %v", err)
 	}

@@ -189,7 +189,7 @@ func (r *waitResult) exitErr() error {
 
 // ciClient is the subset of the GitHub client used by waitForCI.
 type ciClient interface {
-	GetPullRequest(owner, repo string, number int) (*github.PullRequest, error)
+	GetPullRequest(ctx context.Context, owner, repo string, number int) (*github.PullRequest, error)
 	github.CIFetcher
 }
 
@@ -203,11 +203,29 @@ func waitForCI(ctx context.Context, client ciClient, owner, repo string, number 
 		return result
 	}
 
+	stopped := func() *waitResult {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			result.TimedOut = true
+		} else {
+			result.Interrupted = true
+		}
+		return finish()
+	}
+
 	var lastLine string
 	consecutiveErrors := 0
 	for {
 		delay := interval
-		state, err := pollOnce(client, result)
+		state, err := pollOnce(ctx, client, result)
+		moved := false
+		if err == nil && state != "pending" {
+			// Errors confirming the head are handled like poll errors: retried, or
+			// reported as a timeout / interruption, never taken as "head unchanged".
+			moved, err = headMoved(ctx, client, result)
+		}
+		if err != nil && ctx.Err() != nil {
+			return stopped(), nil // the timeout or Ctrl-C cancelled the poll's requests
+		}
 		if limited, resetAt := github.IsRateLimited(err); limited {
 			// Not a failure of the PR or the network: wait for the quota to reset
 			// (still bounded by --timeout) instead of burning the retry budget.
@@ -227,6 +245,10 @@ func waitForCI(ctx context.Context, client ciClient, owner, repo string, number 
 			fmt.Fprintf(progress, "⚠️  %v (retrying)\n", err)
 		} else {
 			consecutiveErrors = 0
+			if moved {
+				fmt.Fprintf(progress, "↻ %s/%s#%d: new commit pushed; waiting for its CI\n", owner, repo, number)
+				continue
+			}
 			if state != "pending" {
 				return finish(), nil
 			}
@@ -239,19 +261,29 @@ func waitForCI(ctx context.Context, client ciClient, owner, repo string, number 
 
 		sleepFunc(ctx, delay)
 		if ctx.Err() != nil {
-			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-				result.TimedOut = true
-			} else {
-				result.Interrupted = true
-			}
-			return finish(), nil
+			return stopped(), nil
 		}
 	}
 }
 
+// headMoved reports whether a new commit was pushed to the PR since result was
+// polled. The CI lookup follows the PR lookup, so a push in between would otherwise
+// return the result of the previous commit. Merged or closed PRs don't move.
+// Unchanged PRs answer 304, so this costs no quota.
+func headMoved(ctx context.Context, client ciClient, result *waitResult) (bool, error) {
+	if result.State == "merged" || result.State == "closed" {
+		return false, nil
+	}
+	pr, err := client.GetPullRequest(ctx, result.Owner, result.Repo, result.Number)
+	if err != nil {
+		return false, fmt.Errorf("failed to confirm the PR head: %w", err)
+	}
+	return pr.Head.SHA != result.SHA, nil
+}
+
 // pollOnce refreshes result from GitHub and returns the current state.
-func pollOnce(client ciClient, result *waitResult) (string, error) {
-	pr, err := client.GetPullRequest(result.Owner, result.Repo, result.Number)
+func pollOnce(ctx context.Context, client ciClient, result *waitResult) (string, error) {
+	pr, err := client.GetPullRequest(ctx, result.Owner, result.Repo, result.Number)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch PR: %w", err)
 	}
@@ -269,7 +301,7 @@ func pollOnce(client ciClient, result *waitResult) (string, error) {
 		return result.State, nil
 	}
 
-	ci, err := github.FetchCIStatus(client, result.Owner, result.Repo, pr.Head.SHA)
+	ci, err := github.FetchCIStatus(ctx, client, result.Owner, result.Repo, pr.Head.SHA)
 	if err != nil {
 		return "", err
 	}

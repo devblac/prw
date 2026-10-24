@@ -1,6 +1,7 @@
 package github
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -27,7 +28,7 @@ func TestSearchPullRequests_ParsesResultsAndSkipsIssues(t *testing.T) {
 			searchItem("Alice", "api", 1, true), searchItem("bob", "web", 2, false), searchItem("bob", "web", 3, true))
 	})
 
-	res, err := c.SearchPullRequests("is:pr is:open author:@me")
+	res, err := c.SearchPullRequests(context.Background(), "is:pr is:open author:@me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +63,7 @@ func TestSearchPullRequests_Paginates(t *testing.T) {
 		fmt.Fprintf(w, `{"total_count":%d,"items":[%s]}`, searchPerPage+5, strings.Join(items, ","))
 	})
 
-	res, err := c.SearchPullRequests("q")
+	res, err := c.SearchPullRequests(context.Background(), "q")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +83,7 @@ func TestSearchPullRequests_CapsAndMarksIncomplete(t *testing.T) {
 		fmt.Fprintf(w, `{"total_count":5000,"items":[%s]}`, strings.Join(items, ","))
 	})
 
-	res, err := c.SearchPullRequests("q")
+	res, err := c.SearchPullRequests(context.Background(), "q")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +99,7 @@ func TestSearchPullRequests_IncompleteFromGitHub(t *testing.T) {
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `{"total_count":1,"incomplete_results":true,"items":[%s]}`, searchItem("o", "r", 1, true))
 	})
-	res, err := c.SearchPullRequests("q")
+	res, err := c.SearchPullRequests(context.Background(), "q")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +112,7 @@ func TestSearchPullRequests_Error(t *testing.T) {
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"message":"Validation Failed"}`, http.StatusUnprocessableEntity)
 	})
-	if _, err := c.SearchPullRequests("q"); err == nil || !strings.Contains(err.Error(), "422") {
+	if _, err := c.SearchPullRequests(context.Background(), "q"); err == nil || !strings.Contains(err.Error(), "422") {
 		t.Errorf("expected a 422 error, got %v", err)
 	}
 }

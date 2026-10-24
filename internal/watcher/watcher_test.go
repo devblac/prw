@@ -20,14 +20,14 @@ type mockGitHubClient struct {
 	err       error
 }
 
-func (m *mockGitHubClient) GetCheckRuns(owner, repo, ref string) ([]github.CheckRun, error) {
+func (m *mockGitHubClient) GetCheckRuns(ctx context.Context, owner, repo, ref string) ([]github.CheckRun, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
 	return m.checkRuns[ref], nil
 }
 
-func (m *mockGitHubClient) GetPullRequest(owner, repo string, number int) (*github.PullRequest, error) {
+func (m *mockGitHubClient) GetPullRequest(ctx context.Context, owner, repo string, number int) (*github.PullRequest, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -39,7 +39,7 @@ func (m *mockGitHubClient) GetPullRequest(owner, repo string, number int) (*gith
 	return pr, nil
 }
 
-func (m *mockGitHubClient) GetCombinedStatus(owner, repo, ref string) (*github.CombinedStatus, error) {
+func (m *mockGitHubClient) GetCombinedStatus(ctx context.Context, owner, repo, ref string) (*github.CombinedStatus, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -95,7 +95,7 @@ func TestWatcherNotificationError(t *testing.T) {
 	w := New(client, cfg, notifier)
 
 	// Should not return error, just print warning
-	if _, err := w.checkPR(&cfg.WatchedPRs[0]); err != nil {
+	if _, err := w.checkPR(context.Background(), &cfg.WatchedPRs[0]); err != nil {
 		t.Errorf("checkPR should not fail when notification fails: %v", err)
 	}
 }
@@ -133,7 +133,7 @@ func TestWatcherNoStatusChange(t *testing.T) {
 	w := New(client, cfg, notifier)
 
 	// Check the PR once
-	if _, err := w.checkPR(&cfg.WatchedPRs[0]); err != nil {
+	if _, err := w.checkPR(context.Background(), &cfg.WatchedPRs[0]); err != nil {
 		t.Fatalf("checkPR failed: %v", err)
 	}
 
@@ -175,7 +175,7 @@ func TestWatcherStatusChange(t *testing.T) {
 	notifier := &mockNotifier{}
 	w := New(client, cfg, notifier)
 
-	if _, err := w.checkPR(&cfg.WatchedPRs[0]); err != nil {
+	if _, err := w.checkPR(context.Background(), &cfg.WatchedPRs[0]); err != nil {
 		t.Fatalf("checkPR failed: %v", err)
 	}
 
@@ -233,7 +233,7 @@ func TestWatcherFirstCheck(t *testing.T) {
 	notifier := &mockNotifier{}
 	w := New(client, cfg, notifier)
 
-	if _, err := w.checkPR(&cfg.WatchedPRs[0]); err != nil {
+	if _, err := w.checkPR(context.Background(), &cfg.WatchedPRs[0]); err != nil {
 		t.Fatalf("checkPR failed: %v", err)
 	}
 
@@ -263,7 +263,7 @@ func TestWatcherGitHubError(t *testing.T) {
 	notifier := &mockNotifier{}
 	w := New(client, cfg, notifier)
 
-	_, err := w.checkPR(&cfg.WatchedPRs[0])
+	_, err := w.checkPR(context.Background(), &cfg.WatchedPRs[0])
 	if err == nil {
 		t.Error("expected error when GitHub API fails")
 	}
@@ -386,7 +386,7 @@ func TestWatcherUpdateTitle(t *testing.T) {
 	notifier := &mockNotifier{}
 	w := New(client, cfg, notifier)
 
-	if _, err := w.checkPR(&cfg.WatchedPRs[0]); err != nil {
+	if _, err := w.checkPR(context.Background(), &cfg.WatchedPRs[0]); err != nil {
 		t.Fatalf("checkPR failed: %v", err)
 	}
 
@@ -425,7 +425,7 @@ func TestWatcherStatusError(t *testing.T) {
 	notifier := &mockNotifier{}
 	w := New(client, cfg, notifier)
 
-	_, err := w.checkPR(&cfg.WatchedPRs[0])
+	_, err := w.checkPR(context.Background(), &cfg.WatchedPRs[0])
 	if err == nil {
 		t.Error("expected error when status fetch fails")
 	}
@@ -459,7 +459,7 @@ func TestWatcherCheckAllPRs(t *testing.T) {
 	notifier := &mockNotifier{}
 	w := New(client, cfg, notifier)
 
-	w.checkAllPRs()
+	w.checkAllPRs(context.Background())
 
 	// Both PRs should be notified
 	if len(notifier.events) != 2 {
@@ -502,7 +502,7 @@ func TestWatcherCheckAllPRsWithError(t *testing.T) {
 	w := New(client, cfg, notifier)
 
 	// This should handle errors gracefully and print warnings
-	w.checkAllPRs()
+	w.checkAllPRs(context.Background())
 
 	// Only one PR should be successfully checked
 	if len(notifier.events) != 1 {
@@ -560,7 +560,7 @@ func TestWatcherNotificationFilterFailOnly(t *testing.T) {
 	notifier := &mockNotifier{}
 	w := New(client, cfg, notifier)
 
-	if _, err := w.checkPR(&cfg.WatchedPRs[0]); err != nil {
+	if _, err := w.checkPR(context.Background(), &cfg.WatchedPRs[0]); err != nil {
 		t.Fatalf("checkPR failed: %v", err)
 	}
 
@@ -600,7 +600,7 @@ func TestWatcherNotificationFilterSuccessOnly(t *testing.T) {
 	notifier := &mockNotifier{}
 	w := New(client, cfg, notifier)
 
-	if _, err := w.checkPR(&cfg.WatchedPRs[0]); err != nil {
+	if _, err := w.checkPR(context.Background(), &cfg.WatchedPRs[0]); err != nil {
 		t.Fatalf("checkPR failed: %v", err)
 	}
 

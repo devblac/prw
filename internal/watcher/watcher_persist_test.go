@@ -1,6 +1,7 @@
 package watcher
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -63,7 +64,7 @@ func TestWatcherReloadsWatchListEachTick(t *testing.T) {
 		t.Fatalf("watcher did not pick up the new watch list: %+v", w.config.WatchedPRs)
 	}
 
-	w.checkAllPRs()
+	w.checkAllPRs(context.Background())
 
 	loaded, err := config.Load()
 	if err != nil {
@@ -106,7 +107,7 @@ func TestWatcherDoesNotResurrectUnwatchedPR(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	w.checkAllPRs()
+	w.checkAllPRs(context.Background())
 
 	loaded, _ := config.Load()
 	if len(loaded.WatchedPRs) != 1 || loaded.WatchedPRs[0].Number != 1 {
@@ -141,7 +142,7 @@ func TestWatcherKeepsPRAddedDuringPoll(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	w.checkAllPRs()
+	w.checkAllPRs(context.Background())
 
 	loaded, _ := config.Load()
 	if len(loaded.WatchedPRs) != 2 {
@@ -171,7 +172,7 @@ func TestWatcherDoesNotPersistRunOnlyOverrides(t *testing.T) {
 		prs:      map[string]*github.PullRequest{"owner/repo/1": newPR(1, "sha1")},
 		statuses: map[string]*github.CombinedStatus{"sha1": {State: "success", SHA: "sha1"}},
 	}
-	New(client, inMemory, &mockNotifier{}).checkAllPRs()
+	New(client, inMemory, &mockNotifier{}).checkAllPRs(context.Background())
 
 	loaded, _ := config.Load()
 	if loaded.NotificationFilter != config.NotificationFilterChange {
@@ -198,5 +199,28 @@ func TestWatcherReloadKeepsListOnLoadError(t *testing.T) {
 
 	if len(w.config.WatchedPRs) != 1 {
 		t.Errorf("a config read error must not empty the watch list: %+v", w.config.WatchedPRs)
+	}
+}
+
+func TestCheckAllPRs_StoppedMidRoundKeepsEveryPR(t *testing.T) {
+	useTempConfig(t)
+	cfg := &config.Config{WatchedPRs: []config.WatchedPR{watched(1, "success"), watched(2, "failure")}}
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Ctrl-C: every request now fails with context.Canceled
+	client := &mockGitHubClient{err: ctx.Err()}
+	notifier := &mockNotifier{}
+	w := New(client, cfg, notifier)
+
+	w.checkAllPRs(ctx)
+
+	loaded, _ := config.Load()
+	if len(loaded.WatchedPRs) != 2 || loaded.WatchedPRs[0].LastKnownState != "success" || loaded.WatchedPRs[1].LastKnownState != "failure" {
+		t.Errorf("watch list = %+v, want both PRs unchanged", loaded.WatchedPRs)
+	}
+	if len(notifier.events) != 0 {
+		t.Errorf("events = %+v", notifier.events)
 	}
 }
