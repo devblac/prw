@@ -50,6 +50,40 @@ func TestMergeStatus(t *testing.T) {
 	}
 }
 
+func TestGetReviews_ReadsPastThreeHundredReviews(t *testing.T) {
+	// 350 comments, then a change request on page 4: the newest verdict must count.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var page int
+		fmt.Sscan(r.URL.Query().Get("page"), &page)
+		count := reviewsPerPage
+		if page == 4 {
+			count = 51
+		}
+		parts := make([]string, count)
+		for i := range parts {
+			parts[i] = `{"user":{"login":"u"},"state":"COMMENTED"}`
+		}
+		if page == 1 {
+			parts[0] = `{"user":{"login":"a"},"state":"APPROVED"}`
+		}
+		if page == 4 {
+			parts[50] = `{"user":{"login":"b"},"state":"CHANGES_REQUESTED"}`
+		}
+		fmt.Fprint(w, "["+strings.Join(parts, ",")+"]")
+	}))
+	defer srv.Close()
+	c := NewClient("token")
+	c.BaseURL = srv.URL
+
+	reviews, err := c.GetReviews(context.Background(), "o", "r", 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reviews) != 351 || ReviewDecision(reviews) != ReviewChangesRequested {
+		t.Errorf("got %d reviews, decision %q; want 351 and the change request on page 4", len(reviews), ReviewDecision(reviews))
+	}
+}
+
 func TestGetReviews_Paginates(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasSuffix(r.URL.Path, "/repos/o/r/pulls/7/reviews") {

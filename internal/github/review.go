@@ -24,8 +24,11 @@ const (
 )
 
 const (
-	reviewsPerPage  = 100
-	maxReviewsPages = 3
+	reviewsPerPage = 100
+	// maxReviewsPages only guards against a runaway loop: reviews come oldest first,
+	// so stopping early would drop the newest verdicts. Every page is fetched (with a
+	// free 304 when unchanged), so 10,000 reviews is far beyond any real PR.
+	maxReviewsPages = 100
 )
 
 // Review is a single submitted pull request review.
