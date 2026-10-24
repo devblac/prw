@@ -283,8 +283,8 @@ var listCmd = &cobra.Command{
 		}
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "REPO\tPR\tSTATUS\tLAST CHECKED\tADDED BY\tTITLE")
-		fmt.Fprintln(w, "----\t--\t------\t------------\t--------\t-----")
+		fmt.Fprintln(w, "REPO\tPR\tSTATUS\tREVIEW\tMERGE\tLAST CHECKED\tADDED BY\tTITLE")
+		fmt.Fprintln(w, "----\t--\t------\t------\t-----\t------------\t--------\t-----")
 
 		for _, pr := range cfg.WatchedPRs {
 			repo := fmt.Sprintf("%s/%s", pr.Owner, pr.Repo)
@@ -305,7 +305,7 @@ var listCmd = &cobra.Command{
 			if pr.Source != "" {
 				addedBy = "--" + pr.Source
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", repo, prNum, status, lastChecked, addedBy, title)
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", repo, prNum, status, orDash(pr.LastReviewState), orDash(pr.LastMergeState), lastChecked, addedBy, title)
 		}
 
 		w.Flush()
@@ -484,6 +484,7 @@ var configShowCmd = &cobra.Command{
 		fmt.Printf("webhook_format: %s\n", notify.NormalizeWebhookFormat(cfg.WebhookFormat))
 		fmt.Printf("notification_filter: %s\n", cfg.NotificationFilter)
 		fmt.Printf("notification_native: %v\n", cfg.NotificationNative)
+		fmt.Printf("pr_events: %v\n", !cfg.DisablePREvents)
 
 		_, tokenSource := cfg.ResolveToken()
 		fmt.Printf("github_token: %s\n", tokenSource)
@@ -510,7 +511,8 @@ Supported keys:
   - webhook_format: auto, slack, discord, or generic (default: auto, detected from the URL)
   - github_token: GitHub personal access token
   - notification_filter: change, fail, or success
-  - notification_native: enable native OS notifications (true/false)`,
+  - notification_native: enable native OS notifications (true/false)
+  - pr_events: notify about reviews and merge conflicts / readiness, not just CI (true/false, default: true)`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		key := args[0]
@@ -557,6 +559,12 @@ func applyConfigSet(cfg *config.Config, key, value string) error {
 			return fmt.Errorf("notification_native must be true or false")
 		}
 		cfg.NotificationNative = enabled
+	case "pr_events":
+		enabled, err := strconv.ParseBool(value)
+		if err != nil {
+			return fmt.Errorf("pr_events must be true or false")
+		}
+		cfg.DisablePREvents = !enabled
 	default:
 		return fmt.Errorf("unknown config key: %s", key)
 	}
@@ -595,6 +603,8 @@ func applyConfigUnset(cfg *config.Config, key string) error {
 		cfg.NotificationFilter = config.NotificationFilterChange
 	case "notification_native":
 		cfg.NotificationNative = false
+	case "pr_events":
+		cfg.DisablePREvents = false
 	default:
 		return fmt.Errorf("unknown config key: %s", key)
 	}
@@ -623,6 +633,16 @@ type listPROutput struct {
 	LastChecked *time.Time `json:"last_checked,omitempty"`
 	Title       string     `json:"title,omitempty"`
 	Source      string     `json:"source,omitempty"` // auto-watch source that added it; empty if added by hand
+	Review      string     `json:"review,omitempty"` // approved, changes_requested or none; empty until checked
+	Merge       string     `json:"merge,omitempty"`  // ready, conflict, blocked, behind, unstable or draft
+}
+
+// orDash shows a state that hasn't been observed yet as "-".
+func orDash(s string) string {
+	if s == "" {
+		return "-"
+	}
+	return s
 }
 
 func outputJSONList(prs []config.WatchedPR) error {
@@ -647,6 +667,8 @@ func outputJSONList(prs []config.WatchedPR) error {
 			LastChecked: lastChecked,
 			Title:       pr.Title,
 			Source:      pr.Source,
+			Review:      pr.LastReviewState,
+			Merge:       pr.LastMergeState,
 		})
 	}
 

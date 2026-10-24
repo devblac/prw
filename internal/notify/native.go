@@ -55,7 +55,7 @@ func (n *NativeNotifier) Notify(event *StatusChangeEvent) error {
 		return nil
 	}
 
-	title := fmt.Sprintf("PR Status Change: %s/%s#%d", event.Owner, event.Repo, event.Number)
+	title := fmt.Sprintf("PR %s Change: %s/%s#%d", stateLabel(event.Kind), event.Owner, event.Repo, event.Number)
 	message := fmt.Sprintf("%s → %s", event.PreviousState, event.CurrentState)
 	if event.Title != "" {
 		message = fmt.Sprintf("%s\n%s", event.Title, message)

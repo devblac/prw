@@ -112,6 +112,10 @@ type PullRequest struct {
 	// UpdatedAt changes on every push (and on comments, labels, ...), so it is an
 	// upper bound for how recently the head commit was pushed.
 	UpdatedAt time.Time `json:"updated_at"`
+	// MergeableState is GitHub's verdict on whether the PR can be merged (clean,
+	// dirty, blocked, behind, unstable, draft, ...); "unknown" while it's computed.
+	// See MergeStatus.
+	MergeableState string `json:"mergeable_state"`
 }
 
 // StateNoCI is reported instead of "pending" for a PR that has no checks or

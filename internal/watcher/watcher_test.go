@@ -17,7 +17,15 @@ type mockGitHubClient struct {
 	prs       map[string]*github.PullRequest
 	statuses  map[string]*github.CombinedStatus
 	checkRuns map[string][]github.CheckRun
+	reviews   map[string][]github.Review // keyed like prs
 	err       error
+}
+
+func (m *mockGitHubClient) GetReviews(ctx context.Context, owner, repo string, number int) ([]github.Review, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.reviews[fmt.Sprintf("%s/%s/%d", owner, repo, number)], nil
 }
 
 func (m *mockGitHubClient) GetCheckRuns(ctx context.Context, owner, repo, ref string) ([]github.CheckRun, error) {
