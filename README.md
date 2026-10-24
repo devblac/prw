@@ -31,6 +31,7 @@ The tool is deliberately minimal. It does one thing well: watch PRs and tell you
 
 ## Features
 
+- **`prw checks`**: every check of a PR with its result, duration and link
 - **`prw wait`**: block until a PR's CI finishes and exit 0/1/2 — for scripts, pipelines and AI coding agents
 - **MCP server** (`prw mcp`): lets Claude Code, Claude Desktop, Cursor and other agents check and wait for PR CI as tools
 - **Auto-watch**: `prw watch --mine` / `--review-requested` follow your PRs and review requests across all repositories, no URLs needed
@@ -265,6 +266,24 @@ With `--json`, stdout is a single object:
 `state` is one of `success`, `failure`, `error`, `pending` (with `timed_out` or `interrupted` set), `merged`, `closed`, or `no_ci`.
 
 **PRs without CI.** Some PRs never get a single check — the repository has no CI, or none runs for the PR's base branch (for example a stacked PR whose base isn't `main`). Right after a push, though, every PR briefly has zero checks while CI registers them. So prw only concludes `no_ci` once the PR has had no checks or statuses at all **and** hasn't been updated for 3 minutes; until then it reports `pending`. `no_ci` exits with `4`, not `0`, so `prw wait && deploy` doesn't deploy a PR that no CI looked at. `prw run` shows `no_ci` in `prw list` but doesn't send a notification for it, and notifies normally if CI shows up later (e.g. after the PR is retargeted).
+
+## Seeing every check: `prw checks`
+
+`prw checks` lists each check of a PR's head commit (GitHub Actions jobs, other check runs and legacy commit statuses) with its result, how long it took and a link to it — failures first, then running ones. The PR does not need to be on the watch list.
+
+```
+$ prw checks https://github.com/owner/repo/pull/123
+owner/repo#123 — Add feature
+abc1234 · failure · 1 fail, 1 pending, 3 pass · merge: blocked
+
+❌ fail     Test (ubuntu-latest)  4m02s   https://github.com/owner/repo/actions/runs/…/job/…
+⏳ pending  E2E                   1m10s…  https://github.com/owner/repo/actions/runs/…/job/…
+✅ pass     Build                 45s     https://github.com/owner/repo/actions/runs/…/job/…
+✅ pass     Lint                  21s     https://github.com/owner/repo/actions/runs/…/job/…
+✅ pass     ci/jenkins                    https://jenkins.example.com/job/…
+```
+
+Runs superseded by a newer run of the same check (e.g. cancelled by `concurrency: cancel-in-progress`) are left out, as they don't count. `--json` prints the same as an object with a `checks` array (`name`, `bucket`, `state`, `kind`, `url`, `started_at`, `completed_at`). Exit codes match `prw wait` — `0` passed, `1` failed, `3` error, `4` no CI — plus `8` while checks are still running.
 
 ## Using prw from AI agents: `prw mcp`
 
