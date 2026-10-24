@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -41,6 +42,43 @@ func TestWaitForCI_ConfirmsHeadBeforeReturning(t *testing.T) {
 	if result.State != "success" || client.polls != 1 || client.revalidations != 1 {
 		t.Errorf("state=%q polls=%d revalidations=%d, want success after one poll and one head check",
 			result.State, client.polls, client.revalidations)
+	}
+}
+
+func TestWaitForCI_RetriesWhenTheHeadCheckFails(t *testing.T) {
+	// A push landed during the poll, and the request that would notice it failed: the
+	// old commit's result must not be returned.
+	noSleep(t)
+	client := &scriptedClient{steps: []pollStep{
+		{pr: openPR("old"), runs: []github.CheckRun{run("Test", "completed", "success")},
+			revalidate: func() error { return errors.New("connection reset") }},
+		{pr: openPR("new"), runs: []github.CheckRun{run("Test", "completed", "failure")}},
+	}}
+
+	result, err := waitForCI(context.Background(), client, "o", "r", 1, time.Second, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.SHA != "new" || result.State != "failure" {
+		t.Errorf("got %s on %s, want the failure of the new head", result.State, result.SHA)
+	}
+}
+
+func TestWaitForCI_InterruptDuringTheHeadCheck(t *testing.T) {
+	noSleep(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	client := &scriptedClient{steps: []pollStep{{
+		pr: openPR("sha"), runs: []github.CheckRun{run("Test", "completed", "success")},
+		revalidate: func() error { cancel(); return ctx.Err() }, // Ctrl-C while it's in flight
+	}}}
+
+	result, err := waitForCI(ctx, client, "o", "r", 1, time.Second, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Interrupted || exitCode(result.exitErr()) != exitWaitInterrupted {
+		t.Errorf("result = %+v, want interrupted (exit 130), not success", result)
 	}
 }
 
