@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `prw run` now notifies once (`merged` or `closed`) and automatically stops watching a PR once it is merged or closed, instead of polling it forever. This notification always fires, regardless of `--on`/`notification_filter`.
 
 ### Added
+- Conditional requests (ETags): repeated polls of unchanged resources are answered with `304 Not Modified`, which doesn't count against the authenticated rate limit. Measured against the real API: after the first poll, 5 further polls of a PR (15 requests) consumed 0 quota. Previously each watched PR cost 3 requests per poll (~540/hour at the default 20s interval), so about 9 PRs exhausted the 5,000/hour limit.
+- Rate-limit handling: 403/429 rate-limit responses are told apart from missing-permission 403s. `prw run` stops the current round and pauses until the reset time; `prw wait` waits for the reset (still bounded by `--timeout`) instead of giving up.
 - `prw wait <PR_URL>`: blocks until the PR's CI finishes and exits `0` (success or merged), `1` (failed), `2` (timeout), `3` (other error) or `130` (interrupted). Fails fast on the first failed check, follows new pushes, retries transient API errors, and prints a JSON result with `--json`. Progress goes to stderr.
 - Zero-setup auth for GitHub CLI users: when no token is configured, `prw` uses `GH_TOKEN` or, failing that, the token from `gh auth token`. Lookup order: config file, `GITHUB_TOKEN`, `GH_TOKEN`, `gh auth token`. `prw config show` now reports the exact source.
 - Integration tests against the real GitHub API (`make integration`, build tag `integration`), run nightly by a new `Integration` workflow. They fail against the old status-only logic.

@@ -268,6 +268,53 @@ func TestWaitForCI_RetriesTransientErrors(t *testing.T) {
 	}
 }
 
+func TestWaitForCI_WaitsForRateLimitResetWithoutGivingUp(t *testing.T) {
+	var delays []time.Duration
+	old := sleepFunc
+	sleepFunc = func(ctx context.Context, d time.Duration) { delays = append(delays, d) }
+	defer func() { sleepFunc = old }()
+
+	limited := &github.APIError{StatusCode: 403, RateLimited: true, ResetAt: time.Now().Add(10 * time.Minute)}
+	client := &scriptedClient{steps: []pollStep{
+		// More rate-limit hits in a row than the transient-error budget allows.
+		{prErr: limited}, {prErr: limited}, {prErr: limited}, {prErr: limited},
+		{pr: openPR("sha"), runs: []github.CheckRun{run("Test", "completed", "success")}},
+	}}
+	var progress bytes.Buffer
+
+	result, err := waitForCI(context.Background(), client, "o", "r", 1, 15*time.Second, &progress)
+	if err != nil {
+		t.Fatalf("rate limits must not count as errors, got %v", err)
+	}
+	if result.State != "success" {
+		t.Errorf("state = %q", result.State)
+	}
+	if len(delays) != 4 || delays[0] < 9*time.Minute {
+		t.Errorf("expected 4 waits of ~10m until the reset, got %v", delays)
+	}
+	if !strings.Contains(progress.String(), "rate limit reached") {
+		t.Errorf("expected a rate limit message:\n%s", progress.String())
+	}
+}
+
+func TestWaitForCI_RateLimitWithoutResetUsesInterval(t *testing.T) {
+	var delays []time.Duration
+	old := sleepFunc
+	sleepFunc = func(ctx context.Context, d time.Duration) { delays = append(delays, d) }
+	defer func() { sleepFunc = old }()
+
+	client := &scriptedClient{steps: []pollStep{
+		{prErr: &github.APIError{StatusCode: 429, RateLimited: true}},
+		{pr: openPR("sha"), runs: []github.CheckRun{run("Test", "completed", "success")}},
+	}}
+	if _, err := waitForCI(context.Background(), client, "o", "r", 1, 15*time.Second, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(delays) != 1 || delays[0] != 15*time.Second {
+		t.Errorf("expected one wait of the poll interval, got %v", delays)
+	}
+}
+
 func TestWaitForCI_GivesUpAfterConsecutiveTransientErrors(t *testing.T) {
 	noSleep(t)
 	client := &scriptedClient{steps: []pollStep{{prErr: errors.New("no route to host")}}}
@@ -310,7 +357,7 @@ func TestIsTransient(t *testing.T) {
 		{&github.APIError{StatusCode: 500}, true},
 		{&github.APIError{StatusCode: 503}, true},
 		{&github.APIError{StatusCode: 429}, true},
-		{&github.APIError{StatusCode: 403, Body: `{"message":"You have exceeded a secondary rate limit"}`}, true},
+		{&github.APIError{StatusCode: 403, RateLimited: true}, true}, // detection is tested in the github package
 		{&github.APIError{StatusCode: 403, Body: `{"message":"Resource not accessible"}`}, false},
 		{&github.APIError{StatusCode: 404}, false},
 		{&github.APIError{StatusCode: 401}, false},

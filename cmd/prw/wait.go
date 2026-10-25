@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -201,8 +200,17 @@ func waitForCI(ctx context.Context, client ciClient, owner, repo string, number 
 	var lastLine string
 	consecutiveErrors := 0
 	for {
+		delay := interval
 		state, err := pollOnce(client, result)
-		if err != nil {
+		if limited, resetAt := github.IsRateLimited(err); limited {
+			// Not a failure of the PR or the network: wait for the quota to reset
+			// (still bounded by --timeout) instead of burning the retry budget.
+			delay = time.Until(resetAt)
+			if delay < interval {
+				delay = interval
+			}
+			fmt.Fprintf(progress, "⚠️  GitHub API rate limit reached; waiting %s before polling again\n", delay.Round(time.Second))
+		} else if err != nil {
 			if !isTransient(err) {
 				return nil, err
 			}
@@ -223,7 +231,7 @@ func waitForCI(ctx context.Context, client ciClient, owner, repo string, number 
 			}
 		}
 
-		sleepFunc(ctx, interval)
+		sleepFunc(ctx, delay)
 		if ctx.Err() != nil {
 			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 				result.TimedOut = true
@@ -273,14 +281,8 @@ func isTransient(err error) bool {
 	if !errors.As(err, &apiErr) {
 		return true // network error, timeout, invalid JSON
 	}
-	switch {
-	case apiErr.StatusCode == http.StatusTooManyRequests, apiErr.StatusCode >= 500:
-		return true
-	case apiErr.StatusCode == http.StatusForbidden:
-		// GitHub uses 403 both for rate limits and for missing permissions.
-		return strings.Contains(strings.ToLower(apiErr.Body), "rate limit")
-	}
-	return false
+	// The client tells 403 rate limits apart from 403 missing permissions.
+	return apiErr.RateLimited || apiErr.StatusCode == http.StatusTooManyRequests || apiErr.StatusCode >= 500
 }
 
 func pendingSummary(r *waitResult) string {
