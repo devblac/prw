@@ -36,6 +36,8 @@ var (
 	waitTimeout  time.Duration
 	waitInterval time.Duration
 	waitJSON     bool
+	waitLogs     bool
+	waitLogLines int
 )
 
 // exitError makes main exit with a specific code.
@@ -66,6 +68,8 @@ func init() {
 	waitCmd.Flags().DurationVar(&waitTimeout, "timeout", 30*time.Minute, "give up after this long (0 = wait forever)")
 	waitCmd.Flags().DurationVar(&waitInterval, "interval", 15*time.Second, "how often to poll GitHub")
 	waitCmd.Flags().BoolVar(&waitJSON, "json", false, "print the result as JSON on stdout")
+	waitCmd.Flags().BoolVar(&waitLogs, "logs", false, "on failure, also print the end of the log of each failed GitHub Actions job")
+	waitCmd.Flags().IntVar(&waitLogLines, "log-lines", github.DefaultLogLines, "lines of each failed job's log to show with --logs")
 }
 
 var waitCmd = &cobra.Command{
@@ -87,9 +91,12 @@ Exit codes:
        last update (e.g. the repository has no CI, or none runs for its base branch)
   130  interrupted (Ctrl+C)
 
-Progress goes to stderr; the result goes to stdout (as JSON with --json).`,
+Progress goes to stderr; the result goes to stdout (as JSON with --json). With
+--logs, a failure also prints the output of the step that failed in each failed
+GitHub Actions job (failed_logs in --json).`,
 	Example: `  prw wait https://github.com/owner/repo/pull/123
   prw wait https://github.com/owner/repo/pull/123 --timeout 10m --json
+  prw wait https://github.com/owner/repo/pull/123 --logs
   prw wait "$PR_URL" && echo "green, deploying"`,
 	SilenceUsage: true,
 	Args: func(cmd *cobra.Command, args []string) error {
@@ -136,12 +143,25 @@ Progress goes to stderr; the result goes to stdout (as JSON with --json).`,
 			}
 		}()
 
-		result, err := waitForCI(ctx, newGitHubClient(token), owner, repo, number, waitInterval, os.Stderr)
+		client := newGitHubClient(token)
+		result, err := waitForCI(ctx, client, owner, repo, number, waitInterval, os.Stderr)
 		if err != nil {
 			return &exitError{code: exitWaitError, err: err}
 		}
+		if waitLogs && (result.State == "failure" || result.State == "error") {
+			// A fresh context: the wait's may be about to time out.
+			logCtx, cancelLogs := context.WithTimeout(context.Background(), time.Minute)
+			result.FailedLogs, err = fetchFailedLogs(logCtx, client, owner, repo, result.SHA, waitLogLines)
+			cancelLogs()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to fetch logs: %v\n", err)
+			}
+		}
 		if err := printWaitResult(os.Stdout, result, waitJSON); err != nil {
 			return &exitError{code: exitWaitError, err: err}
+		}
+		if !waitJSON {
+			printFailedLogs(os.Stdout, result.FailedLogs)
 		}
 		return result.exitErr()
 	},
@@ -149,16 +169,18 @@ Progress goes to stderr; the result goes to stdout (as JSON with --json).`,
 
 // waitResult is the outcome of waitForCI; it is also the --json output.
 type waitResult struct {
-	Owner         string               `json:"owner"`
-	Repo          string               `json:"repo"`
-	Number        int                  `json:"number"`
-	Title         string               `json:"title,omitempty"`
-	URL           string               `json:"url"`
-	SHA           string               `json:"sha,omitempty"`
-	State         string               `json:"state"` // success, failure, error, pending, merged, closed
-	FailedChecks  []github.FailedCheck `json:"failed_checks,omitempty"`
-	TotalChecks   int                  `json:"total_checks"`
-	PendingChecks int                  `json:"pending_checks"`
+	Owner        string               `json:"owner"`
+	Repo         string               `json:"repo"`
+	Number       int                  `json:"number"`
+	Title        string               `json:"title,omitempty"`
+	URL          string               `json:"url"`
+	SHA          string               `json:"sha,omitempty"`
+	State        string               `json:"state"` // success, failure, error, pending, merged, closed
+	FailedChecks []github.FailedCheck `json:"failed_checks,omitempty"`
+	// FailedLogs has the log excerpt of each failed GitHub Actions job (--logs).
+	FailedLogs    []github.FailedJobLog `json:"failed_logs,omitempty"`
+	TotalChecks   int                   `json:"total_checks"`
+	PendingChecks int                   `json:"pending_checks"`
 	// MergeState is GitHub's mergeability (ready, conflict, blocked, behind, unstable,
 	// draft); empty while GitHub is still computing it.
 	MergeState     string  `json:"merge_state,omitempty"`

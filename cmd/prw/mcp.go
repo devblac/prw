@@ -79,6 +79,8 @@ Authentication is the same as for every other command (gh auth login, GITHUB_TOK
 // mcpClient is what the MCP tools need from GitHub.
 type mcpClient interface {
 	ciClient
+	github.LogFetcher
+	github.FlakyFetcher
 }
 
 func defaultMCPClient() (mcpClient, error) {
@@ -428,7 +430,7 @@ var mcpTools = []map[string]interface{}{
 	{
 		"name":        "get_ci_status",
 		"title":       "Get PR CI status",
-		"description": "Get the current CI status of a GitHub pull request: overall state (success, failure, error, pending, merged, closed, or no_ci when the PR has no checks at all), check counts, failed checks with links, and merge_state (ready, conflict, blocked, behind, unstable, draft) telling whether the PR can be merged. Aggregates GitHub Actions check runs and legacy commit statuses. Returns immediately.",
+		"description": "Get the current CI status of a GitHub pull request: overall state (success, failure, error, pending, merged, closed, or no_ci when the PR has no checks at all), check counts, failed checks with links, and merge_state (ready, conflict, blocked, behind, unstable, draft) telling whether the PR can be merged. Aggregates GitHub Actions check runs and legacy commit statuses. Returns immediately. On failure, call get_failed_logs to see why.",
 		"inputSchema": map[string]interface{}{
 			"type":                 "object",
 			"properties":           map[string]interface{}{"pr_url": prURLSchema},
@@ -440,7 +442,7 @@ var mcpTools = []map[string]interface{}{
 	{
 		"name":        "wait_for_ci",
 		"title":       "Wait for PR CI",
-		"description": "Block until a GitHub pull request's CI finishes, then return the result. Fails fast: returns as soon as any check fails, with the failed checks and links. Follows new pushes to the PR. If the timeout is reached first, returns state 'pending' with timed_out=true (call again to keep waiting). A merge while waiting returns state 'merged'; a PR with no checks or statuses at all returns 'no_ci' instead of waiting until the timeout.",
+		"description": "Block until a GitHub pull request's CI finishes, then return the result. Fails fast: returns as soon as any check fails, with the failed checks and links. Follows new pushes to the PR. If the timeout is reached first, returns state 'pending' with timed_out=true (call again to keep waiting). A merge while waiting returns state 'merged'; a PR with no checks or statuses at all returns 'no_ci' instead of waiting until the timeout. On failure, call get_failed_logs to see why.",
 		"inputSchema": map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -458,6 +460,49 @@ var mcpTools = []map[string]interface{}{
 				},
 			},
 			"required":             []string{"pr_url"},
+			"additionalProperties": false,
+		},
+		"annotations": map[string]interface{}{"readOnlyHint": true, "openWorldHint": true},
+	},
+	{
+		"name":        "get_failed_logs",
+		"title":       "Get failed CI job logs",
+		"description": "For each failed GitHub Actions job on a pull request's head commit, return the output of the step that failed: its last lines up to the error, with timestamps and colors stripped. Use it after get_ci_status or wait_for_ci report a failure, to see why without opening the browser. Checks from other CI systems have no log here; their links are returned instead. At most 5 job logs are downloaded per call.",
+		"inputSchema": map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"pr_url": prURLSchema,
+				"max_lines": map[string]interface{}{
+					"type":        "integer",
+					"description": "Lines of each failed step's output to return (default 40, max 200).",
+					"minimum":     1,
+					"maximum":     maxMCPLogLines,
+				},
+			},
+			"required":             []string{"pr_url"},
+			"additionalProperties": false,
+		},
+		"annotations": map[string]interface{}{"readOnlyHint": true, "openWorldHint": true},
+	},
+	{
+		"name":        "get_flaky_checks",
+		"title":       "Find flaky checks",
+		"description": "Find a repository's flaky GitHub Actions jobs: jobs that failed and then passed when the workflow run was re-run on the same commit, in its recent runs. Use it when a check fails to see whether that job is known to fail intermittently (a re-run may fix it) rather than because of the change. Returns workflow, job, how many re-runs it flaked in, when last, and the latest failed attempt's link. Scanning takes a few seconds on large repositories.",
+		"inputSchema": map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"repo": map[string]interface{}{
+					"type":        "string",
+					"description": "The repository as owner/repo, or any GitHub URL in it (a PR URL works).",
+				},
+				"runs": map[string]interface{}{
+					"type":        "integer",
+					"description": "How many recent workflow runs to scan (default 300, max 1000).",
+					"minimum":     1,
+					"maximum":     github.MaxFlakyRuns,
+				},
+			},
+			"required":             []string{"repo"},
 			"additionalProperties": false,
 		},
 		"annotations": map[string]interface{}{"readOnlyHint": true, "openWorldHint": true},
@@ -504,11 +549,13 @@ var mcpToolHandlers map[string]mcpToolHandler
 func init() {
 	// Assigned in init to avoid an initialization cycle (handlers reference mcpServer).
 	mcpToolHandlers = map[string]mcpToolHandler{
-		"get_ci_status": toolGetCIStatus,
-		"wait_for_ci":   toolWaitForCI,
-		"list_watched":  toolListWatched,
-		"watch_pr":      toolWatchPR,
-		"unwatch_pr":    toolUnwatchPR,
+		"get_ci_status":    toolGetCIStatus,
+		"wait_for_ci":      toolWaitForCI,
+		"get_failed_logs":  toolGetFailedLogs,
+		"get_flaky_checks": toolGetFlakyChecks,
+		"list_watched":     toolListWatched,
+		"watch_pr":         toolWatchPR,
+		"unwatch_pr":       toolUnwatchPR,
 	}
 }
 
@@ -617,6 +664,92 @@ func toolWaitForCI(ctx context.Context, s *mcpServer, args json.RawMessage, prog
 		return toolError("failed waiting for CI of %s/%s#%d: %v", owner, repo, number, err)
 	}
 	return toolOK(ciSummary(result), result)
+}
+
+func toolGetFailedLogs(ctx context.Context, s *mcpServer, args json.RawMessage, _ io.Writer) mcpToolResult {
+	owner, repo, number, err := parsePRArg(args)
+	if err != nil {
+		return toolError("%v", err)
+	}
+	var opts struct {
+		MaxLines int `json:"max_lines"`
+	}
+	if err := json.Unmarshal(args, &opts); err != nil {
+		return toolError("invalid arguments: %v", err)
+	}
+	maxLines := opts.MaxLines
+	if maxLines <= 0 {
+		maxLines = github.DefaultLogLines
+	}
+	if maxLines > maxMCPLogLines {
+		maxLines = maxMCPLogLines
+	}
+
+	client, err := s.githubClient()
+	if err != nil {
+		return toolError("%v", err)
+	}
+	pr, err := client.GetPullRequest(ctx, owner, repo, number)
+	if err != nil {
+		return toolError("failed to fetch %s/%s#%d: %v", owner, repo, number, err)
+	}
+	logs, err := fetchFailedLogs(ctx, client, owner, repo, pr.Head.SHA, maxLines)
+	if err != nil {
+		return toolError("failed to get logs of %s/%s#%d: %v", owner, repo, number, err)
+	}
+	if logs == nil {
+		logs = []github.FailedJobLog{}
+	}
+	data := map[string]interface{}{"sha": pr.Head.SHA, "failed_logs": logs}
+	ref := fmt.Sprintf("%s/%s#%d (%s)", owner, repo, number, shortSHA(pr.Head.SHA))
+	if len(logs) == 0 {
+		return toolOK("No failed checks on the head commit of "+ref+".", data)
+	}
+	// The excerpts are the point of this tool, so the text has them rendered for
+	// reading rather than repeated as JSON (they're in structuredContent too).
+	return mcpToolResult{
+		Content:           []mcpContent{{Type: "text", Text: fmt.Sprintf("%d failed check(s) on %s:\n\n%s", len(logs), ref, failedLogsText(logs))}},
+		StructuredContent: data,
+	}
+}
+
+func toolGetFlakyChecks(ctx context.Context, s *mcpServer, args json.RawMessage, _ io.Writer) mcpToolResult {
+	var opts struct {
+		Repo string `json:"repo"`
+		Runs int    `json:"runs"`
+	}
+	if err := json.Unmarshal(args, &opts); err != nil {
+		return toolError("invalid arguments: %v", err)
+	}
+	owner, repo, err := parseRepoArg(opts.Repo)
+	if err != nil {
+		return toolError("%v", err)
+	}
+	client, err := s.githubClient()
+	if err != nil {
+		return toolError("%v", err)
+	}
+	report, err := github.FindFlaky(ctx, client, owner, repo, opts.Runs)
+	if err != nil {
+		return toolError("failed to scan %s/%s: %v", owner, repo, err)
+	}
+	return toolOK(flakySummary(report), report)
+}
+
+// flakySummary is the one-line answer for an agent.
+func flakySummary(r *github.FlakyReport) string {
+	scope := fmt.Sprintf("%s/%s: %d recent workflow run(s) scanned, %d re-run", r.Owner, r.Repo, r.Scanned, r.Reruns)
+	switch {
+	case r.Reruns == 0:
+		return scope + "; none was re-run, so flakiness can't be told apart from real failures."
+	case len(r.Flaky) == 0:
+		return scope + "; no job failed and then passed on re-run."
+	}
+	names := make([]string, 0, len(r.Flaky))
+	for _, f := range r.Flaky {
+		names = append(names, fmt.Sprintf("%s / %s (%dx)", f.Workflow, f.Job, f.Count))
+	}
+	return scope + ". Flaky: " + strings.Join(names, ", ") + "."
 }
 
 type watchedPROutput struct {

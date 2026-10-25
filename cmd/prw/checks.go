@@ -31,11 +31,17 @@ const (
 	checkSkipping = "skipping"
 )
 
-var checksJSON bool
+var (
+	checksJSON     bool
+	checksLogs     bool
+	checksLogLines int
+)
 
 func init() {
 	rootCmd.AddCommand(checksCmd)
 	checksCmd.Flags().BoolVar(&checksJSON, "json", false, "print the checks as JSON")
+	checksCmd.Flags().BoolVar(&checksLogs, "logs", false, "show the end of the log of each failed GitHub Actions job")
+	checksCmd.Flags().IntVar(&checksLogLines, "log-lines", github.DefaultLogLines, "lines of each failed job's log to show with --logs")
 }
 
 var checksCmd = &cobra.Command{
@@ -45,6 +51,10 @@ var checksCmd = &cobra.Command{
 commit statuses) of a pull request's head commit: failures first, then running
 ones, then the rest. The PR does not need to be on the watch list.
 
+With --logs, it also prints the output of the step that failed in each failed
+GitHub Actions job (the last --log-lines lines up to the error), so you can see
+why without opening the browser.
+
 Exit codes:
   0  all checks passed
   1  a check failed
@@ -52,6 +62,7 @@ Exit codes:
   4  the PR has no CI
   8  checks are still running`,
 	Example: `  prw checks https://github.com/owner/repo/pull/123
+  prw checks https://github.com/owner/repo/pull/123 --logs
   prw checks https://github.com/owner/repo/pull/123 --json`,
 	SilenceUsage: true,
 	Args: func(cmd *cobra.Command, args []string) error {
@@ -74,9 +85,17 @@ Exit codes:
 			return &exitError{code: exitWaitError, err: errMissingToken}
 		}
 
-		report, err := fetchChecks(context.Background(), newGitHubClient(token), owner, repo, number, time.Now())
+		ctx := context.Background()
+		client := newGitHubClient(token)
+		report, err := fetchChecks(ctx, client, owner, repo, number, time.Now())
 		if err != nil {
 			return &exitError{code: exitWaitError, err: err}
+		}
+		if checksLogs {
+			report.Logs, err = fetchFailedLogs(ctx, client, owner, repo, report.SHA, checksLogLines)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to fetch logs: %v\n", err)
+			}
 		}
 		if checksJSON {
 			enc := json.NewEncoder(os.Stdout)
@@ -86,6 +105,7 @@ Exit codes:
 			}
 		} else {
 			printChecks(os.Stdout, report, time.Now())
+			printFailedLogs(os.Stdout, report.Logs)
 		}
 		return report.exitErr()
 	},
@@ -113,6 +133,8 @@ type checksReport struct {
 	State      string       `json:"state"` // overall, as in `prw wait`
 	MergeState string       `json:"merge_state,omitempty"`
 	Checks     []checkEntry `json:"checks"`
+	// Logs has an excerpt for each failed job, with --logs.
+	Logs []github.FailedJobLog `json:"logs,omitempty"`
 }
 
 // fetchChecks gets the head commit's check runs and statuses. Superseded runs of the

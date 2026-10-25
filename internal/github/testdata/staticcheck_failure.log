@@ -1,0 +1,58 @@
+2026-10-18T05:33:46.5363687Z GOVCS=''
+2026-10-18T05:33:46.5363893Z GOVERSION='go1.27.2'
+2026-10-18T05:33:46.5364297Z GOWORK=''
+2026-10-18T05:33:46.5364526Z PKG_CONFIG='pkg-config'
+2026-10-18T05:33:46.5364684Z 
+2026-10-18T05:33:46.5365101Z ##[endgroup]
+2026-10-18T05:33:46.5612780Z ##[group]Run go vet ./...
+2026-10-18T05:33:46.5613392Z [36;1mgo vet ./...[0m
+2026-10-18T05:33:46.5811043Z shell: /usr/bin/bash -e {0}
+2026-10-18T05:33:46.5811392Z ##[endgroup]
+2026-10-18T05:33:46.6036162Z go: downloading golang.org/x/tools v0.52.0
+2026-10-18T05:33:46.6074832Z go: downloading golang.org/x/mod v0.42.0
+2026-10-18T05:33:46.9296217Z go: downloading golang.org/x/sync v0.24.0
+2026-10-18T05:33:58.0757945Z ##[group]Run if [ -n "$(gofmt -s -l .)" ]; then
+2026-10-18T05:33:58.0758407Z [36;1mif [ -n "$(gofmt -s -l .)" ]; then[0m
+2026-10-18T05:33:58.0758826Z [36;1m  echo "Go code is not formatted:"[0m
+2026-10-18T05:33:58.0759197Z [36;1m  gofmt -s -d .[0m
+2026-10-18T05:33:58.0759509Z [36;1m  exit 1[0m
+2026-10-18T05:33:58.0759794Z [36;1mfi[0m
+2026-10-18T05:33:58.0803634Z shell: /usr/bin/bash -e {0}
+2026-10-18T05:33:58.0804252Z ##[endgroup]
+2026-10-18T05:33:58.3356443Z ##[group]Run go install honnef.co/go/tools/cmd/staticcheck@v0.8.1
+2026-10-18T05:33:58.3356976Z [36;1mgo install honnef.co/go/tools/cmd/staticcheck@v0.8.1[0m
+2026-10-18T05:33:58.3398833Z shell: /usr/bin/bash -e {0}
+2026-10-18T05:33:58.3399217Z ##[endgroup]
+2026-10-18T05:33:58.4207160Z go: downloading honnef.co/go/tools v0.8.1
+2026-10-18T05:33:58.8575104Z go: downloading golang.org/x/tools v0.44.1-0.20260420230617-19499e7caabc
+2026-10-18T05:33:59.1468384Z go: downloading golang.org/x/exp/typeparams v0.0.0-20231108232855-2478ac86f678
+2026-10-18T05:33:59.1489150Z go: downloading github.com/BurntSushi/toml v1.4.1-0.20240526193622-a339e1f7089c
+2026-10-18T05:33:59.1612522Z go: downloading golang.org/x/sync v0.20.0
+2026-10-18T05:33:59.1817542Z go: downloading golang.org/x/mod v0.35.0
+2026-10-18T05:33:59.3596895Z go: downloading golang.org/x/exp v0.0.0-20231110203233-9a3e6036ecaa
+2026-10-18T05:34:11.9521709Z ##[group]Run staticcheck ./...
+2026-10-18T05:34:11.9522017Z [36;1mstaticcheck ./...[0m
+2026-10-18T05:34:11.9563879Z shell: /usr/bin/bash -e {0}
+2026-10-18T05:34:11.9564321Z ##[endgroup]
+2026-10-18T05:34:12.6788196Z -: internal error in importing "cmp" (cannot decode "cmp", export data version 5 is greater than maximum supported version 4); please report an issue (compile)
+2026-10-18T05:34:12.6789635Z -: internal error in importing "internal/byteorder" (cannot decode "internal/byteorder", export data version 5 is greater than maximum supported version 4); please report an issue (compile)
+2026-10-18T05:34:12.6791322Z -: internal error in importing "internal/cpu" (cannot decode "internal/cpu", export data version 5 is greater than maximum supported version 4); please report an issue (compile)
+2026-10-18T05:34:12.6792450Z -: internal error in importing "internal/goarch" (cannot decode "internal/goarch", export data version 5 is greater than maximum supported version 4); please report an issue (compile)
+2026-10-18T05:34:12.6793771Z -: internal error in importing "math/bits" (cannot decode "math/bits", export data version 5 is greater than maximum supported version 4); please report an issue (compile)
+2026-10-18T05:34:12.6818000Z ##[error]Process completed with exit code 1.
+2026-10-18T05:34:12.6958570Z Post job cleanup.
+2026-10-18T05:34:12.7759987Z [command]/usr/bin/git version
+2026-10-18T05:34:12.7803060Z git version 2.55.0
+2026-10-18T05:34:12.7843356Z Temporarily overriding HOME='/home/runner/work/_temp/69829b6b-508a-4c41-939c-64a926e51c35' before making global git config changes
+2026-10-18T05:34:12.7844589Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-18T05:34:12.7850078Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/go-semver-audit/go-semver-audit
+2026-10-18T05:34:12.7887749Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-18T05:34:12.7918151Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-18T05:34:12.8120895Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-18T05:34:12.8145657Z http.https://github.com/.extraheader
+2026-10-18T05:34:12.8156871Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-10-18T05:34:12.8190765Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-18T05:34:12.8413564Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-18T05:34:12.8451965Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-10-18T05:34:12.8821636Z Cleaning up orphan processes
+2026-10-18T05:34:12.9054557Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-go@v5. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/

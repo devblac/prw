@@ -32,6 +32,14 @@ type pollStep struct {
 	revalidate func() error
 }
 
+// GetJobLog returns the log set for the job in logs, or a "not available" error.
+func (c *scriptedClient) GetJobLog(ctx context.Context, owner, repo string, jobID int64) (string, error) {
+	if log, ok := c.logs[jobID]; ok {
+		return log, nil
+	}
+	return "", fmt.Errorf("log not available")
+}
+
 // scriptedClient returns steps[i] on the i-th poll (repeating the last one). A PR
 // lookup right after a poll that found a final CI result is the head re-check, not a
 // new poll.
@@ -41,6 +49,17 @@ type scriptedClient struct {
 	revalidations int
 	current       pollStep
 	afterCI       bool
+	logs          map[int64]string // job logs by check run id
+	workflowRuns  []github.WorkflowRun
+	attemptJobs   map[string][]github.Job // "runID/attempt"
+}
+
+func (c *scriptedClient) ListWorkflowRuns(ctx context.Context, owner, repo string, max int) ([]github.WorkflowRun, error) {
+	return c.workflowRuns, nil
+}
+
+func (c *scriptedClient) GetAttemptJobs(ctx context.Context, owner, repo string, runID int64, attempt int) ([]github.Job, error) {
+	return c.attemptJobs[fmt.Sprintf("%d/%d", runID, attempt)], nil
 }
 
 func (c *scriptedClient) GetPullRequest(ctx context.Context, owner, repo string, number int) (*github.PullRequest, error) {
