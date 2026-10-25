@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/devblac/prw/internal/forge"
 	"github.com/devblac/prw/internal/github"
 )
 
@@ -22,7 +23,9 @@ const (
 // StatusChangeEvent represents a change of a PR: its CI status by default, or its
 // review decision or merge state, depending on Kind.
 type StatusChangeEvent struct {
-	Kind          string
+	Kind string
+	// Host is where the PR lives (forge.GitHub when empty).
+	Host          string
 	Owner         string
 	Repo          string
 	Number        int
@@ -72,7 +75,7 @@ func NewConsoleNotifier() *ConsoleNotifier {
 
 // Notify prints the status change to console.
 func (c *ConsoleNotifier) Notify(event *StatusChangeEvent) error {
-	prURL := github.FormatPRURL(event.Owner, event.Repo, event.Number)
+	prURL := forge.PRURL(event.Host, event.Owner, event.Repo, event.Number)
 
 	switch event.Kind {
 	case EventKindReview:
@@ -129,6 +132,7 @@ func NewWebhookNotifierWithFormat(url, format string) *WebhookNotifier {
 // WebhookPayload is the JSON structure sent to the webhook.
 type WebhookPayload struct {
 	Type          string               `json:"type"`
+	Host          string               `json:"host,omitempty"` // "bitbucket.org" for Bitbucket; empty for GitHub
 	Owner         string               `json:"owner"`
 	Repo          string               `json:"repo"`
 	PRNumber      int                  `json:"pr_number"`

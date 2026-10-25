@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/devblac/prw/internal/forge"
 	"github.com/devblac/prw/internal/github"
 )
 
@@ -47,7 +48,7 @@ func checksFixture() *scriptedClient {
 }
 
 func TestFetchChecks_BucketsAndOrder(t *testing.T) {
-	report, err := fetchChecks(context.Background(), checksFixture(), "o", "r", 1, checksNow)
+	report, err := fetchChecks(context.Background(), checksFixture(), forge.Ref{Owner: "o", Repo: "r", Number: 1}, checksNow)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +69,7 @@ func TestFetchChecks_BucketsAndOrder(t *testing.T) {
 }
 
 func TestPrintChecks(t *testing.T) {
-	report, err := fetchChecks(context.Background(), checksFixture(), "o", "r", 1, checksNow)
+	report, err := fetchChecks(context.Background(), checksFixture(), forge.Ref{Owner: "o", Repo: "r", Number: 1}, checksNow)
 	if err != nil {
 		t.Fatal(err)
 	}

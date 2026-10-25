@@ -26,6 +26,14 @@ type Client struct {
 	Token      string
 	HTTPClient *http.Client
 
+	// The client doubles as the HTTP transport of other services' clients (see
+	// internal/bitbucket). AuthHeader, if set, is sent as Authorization instead of
+	// "Bearer <Token>"; Accept replaces GitHub's media type; Service names the API
+	// in errors ("GitHub" when empty).
+	AuthHeader string
+	Accept     string
+	Service    string
+
 	// mu guards cache and rateLimit. cache holds the last ETag and body per request
 	// path: a long-running watcher re-asks for the same resources every poll, and a
 	// conditional request answered with 304 Not Modified does not count against the
@@ -78,16 +86,22 @@ type APIError struct {
 	// secondary rate limit. ResetAt is when it is worth retrying (zero if unknown).
 	RateLimited bool
 	ResetAt     time.Time
+	// Service is the API that answered ("GitHub" when empty).
+	Service string
 }
 
 func (e *APIError) Error() string {
+	service := e.Service
+	if service == "" {
+		service = "GitHub"
+	}
 	if e.RateLimited {
 		if !e.ResetAt.IsZero() {
-			return fmt.Sprintf("GitHub API rate limit exceeded (%d); resets at %s", e.StatusCode, e.ResetAt.Local().Format("15:04:05"))
+			return fmt.Sprintf("%s API rate limit exceeded (%d); resets at %s", service, e.StatusCode, e.ResetAt.Local().Format("15:04:05"))
 		}
-		return fmt.Sprintf("GitHub API rate limit exceeded (%d)", e.StatusCode)
+		return fmt.Sprintf("%s API rate limit exceeded (%d)", service, e.StatusCode)
 	}
-	return fmt.Sprintf("GitHub API returned %d: %s", e.StatusCode, e.Body)
+	return fmt.Sprintf("%s API returned %d: %s", service, e.StatusCode, e.Body)
 }
 
 // IsRateLimited reports whether err is (or wraps) a rate-limit APIError, and when to
@@ -460,6 +474,12 @@ func hasCISignal(status *CombinedStatus, runs []CheckRun) bool {
 }
 
 // getJSON performs an authenticated GET request and decodes the JSON response into v.
+// GetJSON GETs BaseURL+path and decodes the JSON response into v, with the client's
+// authentication, ETag cache and rate-limit handling.
+func (c *Client) GetJSON(ctx context.Context, path string, v interface{}) error {
+	return c.getJSON(ctx, path, v)
+}
+
 func (c *Client) getJSON(ctx context.Context, path string, v interface{}) error {
 	req, err := http.NewRequestWithContext(ctx, "GET", c.BaseURL+path, nil)
 	if err != nil {
@@ -468,10 +488,17 @@ func (c *Client) getJSON(ctx context.Context, path string, v interface{}) error 
 
 	// GitHub rejects an empty "Bearer " with 401 even for public repos, so only send the
 	// header when there is a token.
-	if c.Token != "" {
+	switch {
+	case c.AuthHeader != "":
+		req.Header.Set("Authorization", c.AuthHeader)
+	case c.Token != "":
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	accept := c.Accept
+	if accept == "" {
+		accept = "application/vnd.github.v3+json"
+	}
+	req.Header.Set("Accept", accept)
 
 	c.mu.Lock()
 	cached, haveCached := c.cache[path]
@@ -501,7 +528,9 @@ func (c *Client) getJSON(ctx context.Context, path string, v interface{}) error 
 		}
 	default:
 		errBody, _ := io.ReadAll(resp.Body)
-		return newAPIError(resp, errBody)
+		apiErr := newAPIError(resp, errBody)
+		apiErr.Service = c.Service
+		return apiErr
 	}
 
 	if err := json.Unmarshal(body, v); err != nil {

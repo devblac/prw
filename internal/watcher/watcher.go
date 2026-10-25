@@ -2,15 +2,18 @@ package watcher
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/devblac/prw/internal/config"
+	"github.com/devblac/prw/internal/forge"
 	"github.com/devblac/prw/internal/github"
 	"github.com/devblac/prw/internal/notify"
 )
 
-// GitHubClient defines the interface for GitHub operations.
+// GitHubClient is what the watcher needs from a code host's client. The Bitbucket
+// client implements it too, answering in the github package's types.
 type GitHubClient interface {
 	GetPullRequest(ctx context.Context, owner, repo string, number int) (*github.PullRequest, error)
 	GetCombinedStatus(ctx context.Context, owner, repo, ref string) (*github.CombinedStatus, error)
@@ -26,13 +29,17 @@ type ConfigStore interface {
 
 // Watcher polls GitHub PRs and triggers notifications on status changes.
 type Watcher struct {
-	client   GitHubClient
+	client   GitHubClient // GitHub; nil without a token
 	config   *config.Config
 	notifier notify.Notifier
+	// clients holds the clients of other hosts (Bitbucket), set with SetClient.
+	clients map[string]GitHubClient
 
-	// pausedUntil is set when GitHub reports a rate limit; polls are skipped until then
-	// so the watcher stops spending requests that are bound to fail.
-	pausedUntil time.Time
+	// pausedUntil is set per host when it reports a rate limit; that host's PRs are
+	// skipped until then so the watcher stops spending requests that are bound to fail.
+	pausedUntil map[string]time.Time
+	// warnedNoClient remembers hosts already reported as having no client.
+	warnedNoClient map[string]bool
 	// now is the clock; tests replace it.
 	now func() time.Time
 	// lastAutoWatch is when the auto-watch searches last ran.
@@ -41,17 +48,53 @@ type Watcher struct {
 
 const noPRsMessage = "No PRs being watched. Add some with 'prw watch <PR_URL>', or 'prw watch --mine' to follow your open PRs."
 
-// defaultRateLimitPause is used when GitHub doesn't say when the limit resets.
+// defaultRateLimitPause is used when the API doesn't say when the limit resets.
 const defaultRateLimitPause = time.Minute
+
+// BitbucketMinInterval is the least time between two checks of a Bitbucket PR,
+// whatever the poll interval: Bitbucket Cloud allows 1,000 requests per hour and a
+// check costs about two, so this keeps ~8 PRs within the limit.
+const BitbucketMinInterval = time.Minute
 
 // New creates a new Watcher.
 func New(client GitHubClient, cfg *config.Config, notifier notify.Notifier) *Watcher {
 	return &Watcher{
-		client:   client,
-		config:   cfg,
-		notifier: notifier,
-		now:      time.Now,
+		client:         client,
+		config:         cfg,
+		notifier:       notifier,
+		now:            time.Now,
+		clients:        map[string]GitHubClient{},
+		pausedUntil:    map[string]time.Time{},
+		warnedNoClient: map[string]bool{},
 	}
+}
+
+// SetClient sets the client used for PRs on host (forge.Bitbucket).
+func (w *Watcher) SetClient(host string, client GitHubClient) {
+	w.clients[forge.NormalizeHost(host)] = client
+}
+
+// clientFor returns the client for PRs on host, or nil if there is none.
+func (w *Watcher) clientFor(host string) GitHubClient {
+	host = forge.NormalizeHost(host)
+	if host == forge.GitHub {
+		if w.client == nil || isNilClient(w.client) {
+			return nil
+		}
+		return w.client
+	}
+	return w.clients[host]
+}
+
+// isNilClient catches a typed nil (e.g. a nil *github.Client) stored in the interface.
+func isNilClient(c GitHubClient) bool {
+	if c == nil {
+		return true
+	}
+	if gc, ok := c.(*github.Client); ok && gc == nil {
+		return true
+	}
+	return false
 }
 
 // Run starts the watcher loop and runs until context is cancelled.
@@ -82,9 +125,6 @@ func (w *Watcher) Run(ctx context.Context) error {
 			fmt.Println("\nWatcher stopped.")
 			return ctx.Err()
 		case <-ticker.C:
-			if w.now().Before(w.pausedUntil) {
-				continue // rate limited; the pause message was printed when it started
-			}
 			w.reloadWatchedPRs()
 			if len(w.config.AutoWatch) > 0 && w.now().Sub(w.lastAutoWatch) >= AutoWatchInterval {
 				w.syncAutoWatch(ctx)
@@ -131,6 +171,10 @@ func (w *Watcher) checkAllPRs(ctx context.Context) {
 
 	for i := range w.config.WatchedPRs {
 		pr := w.config.WatchedPRs[i]
+		if !w.due(pr) {
+			stillWatched = append(stillWatched, pr) // paused or checked too recently
+			continue
+		}
 		closed, err := w.checkPR(ctx, &pr)
 		if err != nil && ctx.Err() != nil {
 			// Stopped mid-round (Ctrl-C): keep this and the remaining PRs unchanged.
@@ -139,12 +183,13 @@ func (w *Watcher) checkAllPRs(ctx context.Context) {
 		}
 		if err != nil {
 			stillWatched = append(stillWatched, pr) // keep watching; preserve any partial update (e.g. title)
+			if errors.Is(err, errNoClient) {
+				continue // reported once by checkPR
+			}
 			if limited, resetAt := github.IsRateLimited(err); limited {
-				// Every remaining request this round would fail too: keep the rest of
-				// the list unchanged and pause until the limit resets.
-				stillWatched = append(stillWatched, w.config.WatchedPRs[i+1:]...)
-				w.pauseForRateLimit(resetAt)
-				break
+				// The host's other PRs would fail too: skip them until the limit resets.
+				w.pauseForRateLimit(pr.Host, resetAt)
+				continue
 			}
 			fmt.Printf("Error checking PR %s/%s#%d: %v\n", pr.Owner, pr.Repo, pr.Number, err)
 			continue
@@ -170,21 +215,53 @@ func (w *Watcher) checkAllPRs(ctx context.Context) {
 	}
 }
 
-func (w *Watcher) pauseForRateLimit(resetAt time.Time) {
+// due reports whether pr should be checked this round: not while its host is rate
+// limited, and Bitbucket PRs at most every BitbucketMinInterval.
+func (w *Watcher) due(pr config.WatchedPR) bool {
+	host := forge.NormalizeHost(pr.Host)
+	if w.now().Before(w.pausedUntil[host]) {
+		return false
+	}
+	if host == forge.Bitbucket && !pr.LastChecked.IsZero() && w.now().Sub(pr.LastChecked) < BitbucketMinInterval {
+		return false
+	}
+	return true
+}
+
+func (w *Watcher) pauseForRateLimit(host string, resetAt time.Time) {
+	host = forge.NormalizeHost(host)
 	now := w.now()
 	if resetAt.Before(now) {
 		resetAt = now.Add(defaultRateLimitPause)
 	}
-	w.pausedUntil = resetAt
-	fmt.Printf("⚠️  GitHub API rate limit reached; pausing checks until %s (%s).\n",
-		resetAt.Local().Format("15:04:05"), resetAt.Sub(now).Round(time.Second))
+	w.pausedUntil[host] = resetAt
+	fmt.Printf("⚠️  %s API rate limit reached; pausing checks of its PRs until %s (%s).\n",
+		serviceName(host), resetAt.Local().Format("15:04:05"), resetAt.Sub(now).Round(time.Second))
 }
+
+func serviceName(host string) string {
+	if forge.IsBitbucket(host) {
+		return "Bitbucket"
+	}
+	return "GitHub"
+}
+
+// errNoClient is returned for PRs on a host prw has no client for (no token).
+var errNoClient = errors.New("no client for this host")
 
 // checkPR checks one PR's CI status and reports whether it is now closed (merged or
 // not), in which case the caller should stop watching it.
 func (w *Watcher) checkPR(ctx context.Context, pr *config.WatchedPR) (closed bool, err error) {
+	client := w.clientFor(pr.Host)
+	if client == nil {
+		if host := forge.NormalizeHost(pr.Host); !w.warnedNoClient[host] {
+			w.warnedNoClient[host] = true
+			fmt.Printf("Warning: skipping %s PRs: no %s token configured.\n", serviceName(host), serviceName(host))
+		}
+		return false, errNoClient
+	}
 	// Fetch the PR to get its state and current head SHA
-	ghPR, err := w.client.GetPullRequest(ctx, pr.Owner, pr.Repo, pr.Number)
+	ghPR, err := client.GetPullRequest(ctx, pr.Owner, pr.Repo, pr.Number)
 	if err != nil {
 		return false, fmt.Errorf("failed to fetch PR: %w", err)
 	}
@@ -203,6 +280,7 @@ func (w *Watcher) checkPR(ctx context.Context, pr *config.WatchedPR) (closed boo
 		// is a lifecycle event, not a CI result, and this is the user's only chance to
 		// see it before prw stops watching the PR.
 		event := &notify.StatusChangeEvent{
+			Host:          pr.Host,
 			Owner:         pr.Owner,
 			Repo:          pr.Repo,
 			Number:        pr.Number,
@@ -221,7 +299,7 @@ func (w *Watcher) checkPR(ctx context.Context, pr *config.WatchedPR) (closed boo
 	currentSHA := ghPR.Head.SHA
 
 	// Aggregate commit statuses and check runs (GitHub Actions) for the head commit
-	ci, err := github.FetchCIStatus(ctx, w.client, pr.Owner, pr.Repo, currentSHA)
+	ci, err := github.FetchCIStatus(ctx, client, pr.Owner, pr.Repo, currentSHA)
 	if err != nil {
 		return false, fmt.Errorf("failed to fetch status: %w", err)
 	}
@@ -242,6 +320,7 @@ func (w *Watcher) checkPR(ctx context.Context, pr *config.WatchedPR) (closed boo
 		shouldNotify(w.config.NotificationFilter, currentState) {
 		notifiedCI = true
 		event := &notify.StatusChangeEvent{
+			Host:          pr.Host,
 			Owner:         pr.Owner,
 			Repo:          pr.Repo,
 			Number:        pr.Number,
@@ -275,7 +354,7 @@ func (w *Watcher) checkPR(ctx context.Context, pr *config.WatchedPR) (closed boo
 // notifiedCI tells whether a CI notification was just sent for this PR. Nothing is
 // announced the first time a PR is seen (the previous state is empty).
 func (w *Watcher) checkPREvents(ctx context.Context, pr *config.WatchedPR, ghPR *github.PullRequest, notifiedCI bool) error {
-	reviews, err := w.client.GetReviews(ctx, pr.Owner, pr.Repo, pr.Number)
+	reviews, err := w.clientFor(pr.Host).GetReviews(ctx, pr.Owner, pr.Repo, pr.Number)
 	if err != nil {
 		return fmt.Errorf("failed to fetch reviews: %w", err)
 	}
@@ -320,6 +399,7 @@ func mergeWorthNotifying(prev, merge string, notified bool) bool {
 func (w *Watcher) notifyPREvent(pr *config.WatchedPR, ghPR *github.PullRequest, kind, prev, current string) {
 	event := &notify.StatusChangeEvent{
 		Kind:          kind,
+		Host:          pr.Host,
 		Owner:         pr.Owner,
 		Repo:          pr.Repo,
 		Number:        pr.Number,

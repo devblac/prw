@@ -35,6 +35,7 @@ The tool is deliberately minimal. It does one thing well: watch PRs and tell you
 - **`prw flaky`**: find a repository's flaky jobs (failed, then passed on re-run of the same commit)
 - **`prw wait`**: block until a PR's CI finishes and exit 0/1/2 — for scripts, pipelines and AI coding agents
 - **MCP server** (`prw mcp`): lets Claude Code, Claude Desktop, Cursor and other agents check and wait for PR CI as tools
+- **Bitbucket Cloud**: watch, wait for and list the builds of Bitbucket PRs (Pipelines, Jenkins, ...) with the same commands
 - **Auto-watch**: `prw watch --mine` / `--review-requested` follow your PRs and review requests across all repositories, no URLs needed
 - **Auto-cleanup**: merged/closed PRs are notified once and dropped from the watch list by `prw run`
 - **Watch multiple PRs** from different repositories simultaneously
@@ -351,6 +352,32 @@ Tools:
 
 Results include a one-line summary for the model plus the full data as JSON (and as `structuredContent`). Authentication works like every other command — with `gh auth login` there's nothing to configure. All tools share one GitHub client, so the ETag cache keeps repeated polling free.
 
+## Bitbucket Cloud
+
+prw also watches **Bitbucket Cloud** pull requests: pass their URL wherever a PR URL goes.
+
+```bash
+prw watch https://bitbucket.org/acme/api/pull-requests/42
+prw wait  https://bitbucket.org/acme/api/pull-requests/42 && ./deploy.sh
+prw checks https://bitbucket.org/acme/api/pull-requests/42
+```
+
+- **CI** comes from the commit's build statuses, so it covers Bitbucket Pipelines, Jenkins and anything else that reports to Bitbucket, each with its link and duration. A stopped build counts as failed.
+- **Reviews**: participants who approved or requested changes. **Merge state** comes from the PR's merge checks: `conflict`, `blocked` (e.g. missing approvals or successful builds), or `ready`.
+- `prw run` notifies about Bitbucket PRs just like GitHub ones, `prw list` shows them as `bitbucket:workspace/repo`, and the MCP tools accept their URLs.
+- Bitbucket Cloud allows 1,000 API requests per hour, so `prw run` checks each Bitbucket PR at most once a minute whatever the poll interval (about 8 PRs fit in the limit). A rate limit on one service doesn't pause the other.
+- Not yet for Bitbucket: `--mine` / `--review-requested`, `--logs` and `prw flaky`.
+
+**Authentication.** Public repositories work without credentials. For private ones, create an [Atlassian API token](https://id.atlassian.com/manage-profile/security/api-tokens) with Bitbucket read scopes (repositories and pull requests) and give prw your Atlassian email with it:
+
+```bash
+prw config set bitbucket_email you@example.com
+prw config set bitbucket_token <api-token>
+# or: export BITBUCKET_EMAIL=you@example.com BITBUCKET_TOKEN=<api-token>
+```
+
+A workspace, project or repository access token also works: set only `bitbucket_token` (it's sent as a Bearer token). No GitHub token is needed if you only watch Bitbucket PRs.
+
 ## Configuration
 
 Configuration is stored in `~/.prw/config.json`. You can manage settings via the `config` subcommand.
@@ -402,6 +429,7 @@ prw config set webhook_url https://hooks.slack.com/services/YOUR/WEBHOOK/URL
 - **`notification_native`**: Enable native OS notifications (true/false, default: false)
 - **`pr_events`**: Also notify about reviews and merge conflicts / readiness (true/false, default: true)
 - **`github_token`**: GitHub Personal Access Token (prefer env var `GITHUB_TOKEN`)
+- **`bitbucket_token`** / **`bitbucket_email`**: Bitbucket Cloud API token and its Atlassian email, or an access token alone (env `BITBUCKET_TOKEN` / `BITBUCKET_EMAIL`)
 
 ## Notifications
 

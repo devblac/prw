@@ -27,7 +27,7 @@ type mcpHarness struct {
 	mu      sync.Mutex
 }
 
-func startMCP(t *testing.T, factory func() (mcpClient, error)) *mcpHarness {
+func startMCP(t *testing.T, factory func(string) (mcpClient, error)) *mcpHarness {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), ".prw", "config.json")
 	oldPath := config.ConfigPath
@@ -158,8 +158,8 @@ func setSleep(t *testing.T, fn func(context.Context, time.Duration)) {
 	t.Cleanup(func() { sleepFunc = old })
 }
 
-func staticClient(c mcpClient) func() (mcpClient, error) {
-	return func() (mcpClient, error) { return c, nil }
+func staticClient(c mcpClient) func(string) (mcpClient, error) {
+	return func(string) (mcpClient, error) { return c, nil }
 }
 
 func successClient() *scriptedClient {
@@ -286,7 +286,7 @@ func TestMCP_GetCIStatus(t *testing.T) {
 func TestMCP_ToolErrorsAreReportedAsIsError(t *testing.T) {
 	tests := []struct {
 		name    string
-		factory func() (mcpClient, error)
+		factory func(string) (mcpClient, error)
 		tool    string
 		args    interface{}
 		want    string
@@ -294,7 +294,7 @@ func TestMCP_ToolErrorsAreReportedAsIsError(t *testing.T) {
 		{"missing pr_url", staticClient(successClient()), "get_ci_status", map[string]string{}, "pr_url is required"},
 		{"invalid pr_url", staticClient(successClient()), "wait_for_ci", map[string]string{"pr_url": "nope"}, "invalid pr_url"},
 		{"wrong argument type", staticClient(successClient()), "wait_for_ci", map[string]interface{}{"pr_url": "https://github.com/o/r/pull/1", "timeout_seconds": "soon"}, "invalid arguments"},
-		{"missing token", func() (mcpClient, error) { return nil, errMissingToken }, "get_ci_status", map[string]string{"pr_url": "https://github.com/o/r/pull/1"}, "gh auth login"},
+		{"missing token", func(string) (mcpClient, error) { return nil, errMissingToken }, "get_ci_status", map[string]string{"pr_url": "https://github.com/o/r/pull/1"}, "gh auth login"},
 		{"API error", staticClient(&scriptedClient{steps: []pollStep{{prErr: &github.APIError{StatusCode: 404, Body: "Not Found"}}}}), "get_ci_status", map[string]string{"pr_url": "https://github.com/o/r/pull/1"}, "404"},
 	}
 	for _, tt := range tests {
@@ -487,7 +487,7 @@ func TestMCP_WatchListTools(t *testing.T) {
 
 func TestMCP_SharesOneGitHubClient(t *testing.T) {
 	created := 0
-	h := startMCP(t, func() (mcpClient, error) {
+	h := startMCP(t, func(string) (mcpClient, error) {
 		created++
 		return successClient(), nil
 	})

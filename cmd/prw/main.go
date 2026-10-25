@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/devblac/prw/internal/config"
+	"github.com/devblac/prw/internal/forge"
 	"github.com/devblac/prw/internal/github"
 	"github.com/devblac/prw/internal/notify"
 	"github.com/devblac/prw/internal/version"
@@ -140,29 +141,30 @@ Undo with 'prw unwatch --mine' / 'prw unwatch --review-requested'.`,
 }
 
 func watchSinglePR(prURL string) error {
-	owner, repo, number, err := github.ParsePRURL(prURL)
+	ref, err := forge.ParsePRURL(prURL)
 	if err != nil {
 		return fmt.Errorf("invalid PR URL: %w", err)
 	}
+	owner, repo, number := ref.Owner, ref.Repo, ref.Number
 
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	token := cfg.GetToken()
-	if token == "" {
-		return errMissingToken
+	client, err := clientFor(cfg, ref.Host)
+	if err != nil {
+		return err
 	}
 
 	// Try to fetch the PR to validate it exists and get title
-	client := newGitHubClient(token)
 	pr, err := client.GetPullRequest(context.Background(), owner, repo, number)
 	if err != nil {
-		return fmt.Errorf("failed to fetch PR: %w", err)
+		return fmt.Errorf("failed to fetch PR: %w%s", err, bitbucketAuthHint(ref.Host, err))
 	}
 
 	watchedPR := config.WatchedPR{
+		Host:   forge.StorageHost(ref.Host),
 		Owner:  owner,
 		Repo:   repo,
 		Number: number,
@@ -177,7 +179,7 @@ func watchSinglePR(prURL string) error {
 		if !added {
 			// Watching by hand a PR that auto-watch added keeps it even if that
 			// auto-watch is turned off later.
-			claimed = c.MarkManual(owner, repo, number)
+			claimed = c.MarkManual(ref.Host, owner, repo, number)
 		}
 		if !added && !claimed {
 			return config.ErrNoChanges
@@ -288,6 +290,9 @@ var listCmd = &cobra.Command{
 
 		for _, pr := range cfg.WatchedPRs {
 			repo := fmt.Sprintf("%s/%s", pr.Owner, pr.Repo)
+			if forge.IsBitbucket(pr.Host) {
+				repo = "bitbucket:" + repo
+			}
 			prNum := fmt.Sprintf("#%d", pr.Number)
 			status := pr.LastKnownState
 			if status == "" {
@@ -340,14 +345,15 @@ finds it again; use --mine / --review-requested to stop following those PRs.`,
 }
 
 func unwatchSinglePR(prURL string) error {
-	owner, repo, number, err := github.ParsePRURL(prURL)
+	ref, err := forge.ParsePRURL(prURL)
 	if err != nil {
 		return fmt.Errorf("invalid PR URL: %w", err)
 	}
+	owner, repo, number := ref.Owner, ref.Repo, ref.Number
 
 	removed := false
 	if err := config.Update(func(c *config.Config) error {
-		removed = c.RemovePR(owner, repo, number)
+		removed = c.RemovePR(ref.Host, owner, repo, number)
 		if !removed {
 			return config.ErrNoChanges
 		}
@@ -411,12 +417,13 @@ Press Ctrl+C to stop.`,
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		token := cfg.GetToken()
-		if token == "" {
+		// GitHub needs a token; without one, only Bitbucket PRs can be watched.
+		var client watcher.GitHubClient
+		if token := cfg.GetToken(); token != "" {
+			client = newGitHubClient(token)
+		} else if needsGitHub(cfg) {
 			return errMissingToken
 		}
-
-		client := newGitHubClient(token)
 
 		// Build notifier chain
 		notifiers := []notify.Notifier{notify.NewConsoleNotifier()}
@@ -439,6 +446,8 @@ Press Ctrl+C to stop.`,
 		cfg.NotificationFilter = filter
 
 		w := watcher.New(client, cfg, notifier)
+		bbAuth, _ := cfg.ResolveBitbucketAuth()
+		w.SetClient(forge.Bitbucket, newBitbucketClient(bbAuth.Email, bbAuth.Token))
 
 		// Setup signal handling
 		ctx, cancel := context.WithCancel(context.Background())
@@ -488,6 +497,15 @@ var configShowCmd = &cobra.Command{
 
 		_, tokenSource := cfg.ResolveToken()
 		fmt.Printf("github_token: %s\n", tokenSource)
+		bbAuth, bbSource := cfg.ResolveBitbucketAuth()
+		switch {
+		case bbAuth.Token == "":
+			fmt.Printf("bitbucket_token: %s (public repositories only)\n", bbSource)
+		case bbAuth.Email != "":
+			fmt.Printf("bitbucket_token: %s, API token for %s\n", bbSource, bbAuth.Email)
+		default:
+			fmt.Printf("bitbucket_token: %s, access token\n", bbSource)
+		}
 
 		autoWatch := "off"
 		if len(cfg.AutoWatch) > 0 {
@@ -510,6 +528,8 @@ Supported keys:
   - webhook_url: URL to POST notifications to
   - webhook_format: auto, slack, discord, or generic (default: auto, detected from the URL)
   - github_token: GitHub personal access token
+  - bitbucket_token: Bitbucket Cloud API token (with bitbucket_email), or an access token alone
+  - bitbucket_email: the Atlassian account email that goes with an API token
   - notification_filter: change, fail, or success
   - notification_native: enable native OS notifications (true/false)
   - pr_events: notify about reviews and merge conflicts / readiness, not just CI (true/false, default: true)`,
@@ -524,7 +544,11 @@ Supported keys:
 			return err
 		}
 
-		fmt.Printf("Set %s = %s\n", key, value)
+		if strings.HasSuffix(key, "_token") {
+			fmt.Printf("Set %s\n", key) // don't echo secrets into terminal scrollback
+		} else {
+			fmt.Printf("Set %s = %s\n", key, value)
+		}
 		return nil
 	},
 }
@@ -547,6 +571,10 @@ func applyConfigSet(cfg *config.Config, key, value string) error {
 		cfg.WebhookFormat = format
 	case "github_token":
 		cfg.GitHubToken = value
+	case "bitbucket_token":
+		cfg.BitbucketToken = value
+	case "bitbucket_email":
+		cfg.BitbucketEmail = value
 	case "notification_filter":
 		filter := config.NormalizeNotificationFilter(value)
 		if !config.IsValidNotificationFilter(filter) {
@@ -599,6 +627,10 @@ func applyConfigUnset(cfg *config.Config, key string) error {
 		cfg.WebhookFormat = ""
 	case "github_token":
 		cfg.GitHubToken = ""
+	case "bitbucket_token":
+		cfg.BitbucketToken = ""
+	case "bitbucket_email":
+		cfg.BitbucketEmail = ""
 	case "notification_filter":
 		cfg.NotificationFilter = config.NotificationFilterChange
 	case "notification_native":
@@ -626,6 +658,7 @@ func init() {
 }
 
 type listPROutput struct {
+	Host        string     `json:"host,omitempty"` // "bitbucket.org" for Bitbucket; empty for GitHub
 	Owner       string     `json:"owner"`
 	Repo        string     `json:"repo"`
 	Number      int        `json:"number"`
@@ -660,6 +693,7 @@ func outputJSONList(prs []config.WatchedPR) error {
 			lastChecked = &t
 		}
 		output = append(output, listPROutput{
+			Host:        forge.StorageHost(pr.Host),
 			Owner:       pr.Owner,
 			Repo:        pr.Repo,
 			Number:      pr.Number,

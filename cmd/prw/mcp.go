@@ -18,6 +18,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/devblac/prw/internal/config"
+	"github.com/devblac/prw/internal/forge"
 	"github.com/devblac/prw/internal/github"
 	"github.com/devblac/prw/internal/version"
 )
@@ -76,23 +77,19 @@ Authentication is the same as for every other command (gh auth login, GITHUB_TOK
 	},
 }
 
-// mcpClient is what the MCP tools need from GitHub.
+// mcpClient is what the MCP tools need from a code host (GitHub or Bitbucket).
 type mcpClient interface {
 	ciClient
 	github.LogFetcher
 	github.FlakyFetcher
 }
 
-func defaultMCPClient() (mcpClient, error) {
+func defaultMCPClient(host string) (mcpClient, error) {
 	cfg, err := config.Load()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
-	token := cfg.GetToken()
-	if token == "" {
-		return nil, errMissingToken
-	}
-	return newGitHubClient(token), nil
+	return clientFor(cfg, host)
 }
 
 type rpcRequest struct {
@@ -127,16 +124,16 @@ type mcpServer struct {
 
 	writeMu sync.Mutex
 
-	clientFactory func() (mcpClient, error)
+	clientFactory func(host string) (mcpClient, error)
 	clientMu      sync.Mutex
-	client        mcpClient // created on first use and shared, so the ETag cache is too
+	clients       map[string]mcpClient // per host, created on first use and shared, so the ETag cache is too
 
 	inflightMu sync.Mutex
 	inflight   map[string]context.CancelFunc
 	calls      sync.WaitGroup
 }
 
-func newMCPServer(in io.Reader, out, logOut io.Writer, clientFactory func() (mcpClient, error)) *mcpServer {
+func newMCPServer(in io.Reader, out, logOut io.Writer, clientFactory func(host string) (mcpClient, error)) *mcpServer {
 	return &mcpServer{
 		in:            in,
 		out:           out,
@@ -320,17 +317,22 @@ func (s *mcpServer) startToolCall(ctx context.Context, req rpcRequest) {
 
 // githubClient returns the shared GitHub client, creating it on first use so a missing
 // token is reported as a tool error instead of preventing the server from starting.
-func (s *mcpServer) githubClient() (mcpClient, error) {
+// clientFor returns the shared client for PRs on host.
+func (s *mcpServer) clientFor(host string) (mcpClient, error) {
+	host = forge.NormalizeHost(host)
 	s.clientMu.Lock()
 	defer s.clientMu.Unlock()
-	if s.client != nil {
-		return s.client, nil
+	if c, ok := s.clients[host]; ok {
+		return c, nil
 	}
-	c, err := s.clientFactory()
+	c, err := s.clientFactory(host)
 	if err != nil {
 		return nil, err
 	}
-	s.client = c
+	if s.clients == nil {
+		s.clients = map[string]mcpClient{}
+	}
+	s.clients[host] = c
 	return c, nil
 }
 
@@ -563,21 +565,22 @@ type prURLArgs struct {
 	PRURL string `json:"pr_url"`
 }
 
-func parsePRArg(args json.RawMessage) (owner, repo string, number int, err error) {
+// parsePRArg reads the pr_url argument: a GitHub or Bitbucket Cloud PR URL.
+func parsePRArg(args json.RawMessage) (host, owner, repo string, number int, err error) {
 	var a prURLArgs
 	if len(args) > 0 {
 		if err := json.Unmarshal(args, &a); err != nil {
-			return "", "", 0, fmt.Errorf("invalid arguments: %v", err)
+			return "", "", "", 0, fmt.Errorf("invalid arguments: %v", err)
 		}
 	}
 	if strings.TrimSpace(a.PRURL) == "" {
-		return "", "", 0, errors.New("pr_url is required")
+		return "", "", "", 0, errors.New("pr_url is required")
 	}
-	owner, repo, number, err = github.ParsePRURL(a.PRURL)
+	ref, err := forge.ParsePRURL(a.PRURL)
 	if err != nil {
-		return "", "", 0, fmt.Errorf("invalid pr_url %q: %v", a.PRURL, err)
+		return "", "", "", 0, fmt.Errorf("invalid pr_url %q: %v", a.PRURL, err)
 	}
-	return owner, repo, number, nil
+	return ref.Host, ref.Owner, ref.Repo, ref.Number, nil
 }
 
 func ciSummary(r *waitResult) string {
@@ -607,15 +610,16 @@ func ciSummary(r *waitResult) string {
 }
 
 func toolGetCIStatus(ctx context.Context, s *mcpServer, args json.RawMessage, _ io.Writer) mcpToolResult {
-	owner, repo, number, err := parsePRArg(args)
+	host, owner, repo, number, err := parsePRArg(args)
 	if err != nil {
 		return toolError("%v", err)
 	}
-	client, err := s.githubClient()
+	client, err := s.clientFor(host)
 	if err != nil {
 		return toolError("%v", err)
 	}
-	result := &waitResult{Owner: owner, Repo: repo, Number: number, URL: github.FormatPRURL(owner, repo, number)}
+	ref := forge.Ref{Host: host, Owner: owner, Repo: repo, Number: number}
+	result := &waitResult{Host: forge.StorageHost(host), Owner: owner, Repo: repo, Number: number, URL: ref.URL()}
 	if _, err := pollOnce(ctx, client, result); err != nil {
 		return toolError("failed to get CI status of %s/%s#%d: %v", owner, repo, number, err)
 	}
@@ -623,7 +627,7 @@ func toolGetCIStatus(ctx context.Context, s *mcpServer, args json.RawMessage, _ 
 }
 
 func toolWaitForCI(ctx context.Context, s *mcpServer, args json.RawMessage, progress io.Writer) mcpToolResult {
-	owner, repo, number, err := parsePRArg(args)
+	host, owner, repo, number, err := parsePRArg(args)
 	if err != nil {
 		return toolError("%v", err)
 	}
@@ -652,14 +656,14 @@ func toolWaitForCI(ctx context.Context, s *mcpServer, args json.RawMessage, prog
 		interval = mcpMinWaitInterval
 	}
 
-	client, err := s.githubClient()
+	client, err := s.clientFor(host)
 	if err != nil {
 		return toolError("%v", err)
 	}
 
 	waitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	result, err := waitForCI(waitCtx, client, owner, repo, number, interval, progress)
+	result, err := waitForCI(waitCtx, client, forge.Ref{Host: host, Owner: owner, Repo: repo, Number: number}, interval, progress)
 	if err != nil {
 		return toolError("failed waiting for CI of %s/%s#%d: %v", owner, repo, number, err)
 	}
@@ -667,7 +671,7 @@ func toolWaitForCI(ctx context.Context, s *mcpServer, args json.RawMessage, prog
 }
 
 func toolGetFailedLogs(ctx context.Context, s *mcpServer, args json.RawMessage, _ io.Writer) mcpToolResult {
-	owner, repo, number, err := parsePRArg(args)
+	host, owner, repo, number, err := parsePRArg(args)
 	if err != nil {
 		return toolError("%v", err)
 	}
@@ -685,7 +689,7 @@ func toolGetFailedLogs(ctx context.Context, s *mcpServer, args json.RawMessage, 
 		maxLines = maxMCPLogLines
 	}
 
-	client, err := s.githubClient()
+	client, err := s.clientFor(host)
 	if err != nil {
 		return toolError("%v", err)
 	}
@@ -725,7 +729,7 @@ func toolGetFlakyChecks(ctx context.Context, s *mcpServer, args json.RawMessage,
 	if err != nil {
 		return toolError("%v", err)
 	}
-	client, err := s.githubClient()
+	client, err := s.clientFor(forge.GitHub)
 	if err != nil {
 		return toolError("%v", err)
 	}
@@ -754,6 +758,7 @@ func flakySummary(r *github.FlakyReport) string {
 
 type watchedPROutput struct {
 	URL         string     `json:"url"`
+	Host        string     `json:"host"`
 	Owner       string     `json:"owner"`
 	Repo        string     `json:"repo"`
 	Number      int        `json:"number"`
@@ -776,7 +781,7 @@ func toolListWatched(ctx context.Context, s *mcpServer, _ json.RawMessage, _ io.
 			state = "unknown"
 		}
 		out := watchedPROutput{
-			URL: github.FormatPRURL(pr.Owner, pr.Repo, pr.Number), Owner: pr.Owner, Repo: pr.Repo,
+			URL: forge.PRURL(pr.Host, pr.Owner, pr.Repo, pr.Number), Host: forge.NormalizeHost(pr.Host), Owner: pr.Owner, Repo: pr.Repo,
 			Number: pr.Number, Title: pr.Title, LastState: state, Review: pr.LastReviewState, Merge: pr.LastMergeState,
 		}
 		if !pr.LastChecked.IsZero() {
@@ -793,11 +798,11 @@ func toolListWatched(ctx context.Context, s *mcpServer, _ json.RawMessage, _ io.
 }
 
 func toolWatchPR(ctx context.Context, s *mcpServer, args json.RawMessage, _ io.Writer) mcpToolResult {
-	owner, repo, number, err := parsePRArg(args)
+	host, owner, repo, number, err := parsePRArg(args)
 	if err != nil {
 		return toolError("%v", err)
 	}
-	client, err := s.githubClient()
+	client, err := s.clientFor(host)
 	if err != nil {
 		return toolError("%v", err)
 	}
@@ -808,7 +813,7 @@ func toolWatchPR(ctx context.Context, s *mcpServer, args json.RawMessage, _ io.W
 
 	added := false
 	if err := config.Update(func(c *config.Config) error {
-		added = c.AddPR(config.WatchedPR{Owner: owner, Repo: repo, Number: number, Title: pr.Title})
+		added = c.AddPR(config.WatchedPR{Host: forge.StorageHost(host), Owner: owner, Repo: repo, Number: number, Title: pr.Title})
 		if !added {
 			return config.ErrNoChanges
 		}
@@ -821,17 +826,17 @@ func toolWatchPR(ctx context.Context, s *mcpServer, args json.RawMessage, _ io.W
 	if !added {
 		summary = fmt.Sprintf("%s/%s#%d was already being watched.", owner, repo, number)
 	}
-	return toolOK(summary, map[string]interface{}{"url": github.FormatPRURL(owner, repo, number), "title": pr.Title, "added": added})
+	return toolOK(summary, map[string]interface{}{"url": forge.PRURL(host, owner, repo, number), "title": pr.Title, "added": added})
 }
 
 func toolUnwatchPR(ctx context.Context, s *mcpServer, args json.RawMessage, _ io.Writer) mcpToolResult {
-	owner, repo, number, err := parsePRArg(args)
+	host, owner, repo, number, err := parsePRArg(args)
 	if err != nil {
 		return toolError("%v", err)
 	}
 	removed := false
 	if err := config.Update(func(c *config.Config) error {
-		removed = c.RemovePR(owner, repo, number)
+		removed = c.RemovePR(host, owner, repo, number)
 		if !removed {
 			return config.ErrNoChanges
 		}
@@ -844,5 +849,5 @@ func toolUnwatchPR(ctx context.Context, s *mcpServer, args json.RawMessage, _ io
 	if !removed {
 		summary = fmt.Sprintf("%s/%s#%d was not being watched.", owner, repo, number)
 	}
-	return toolOK(summary, map[string]interface{}{"url": github.FormatPRURL(owner, repo, number), "removed": removed})
+	return toolOK(summary, map[string]interface{}{"url": forge.PRURL(host, owner, repo, number), "removed": removed})
 }

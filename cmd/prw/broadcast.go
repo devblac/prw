@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/devblac/prw/internal/config"
+	"github.com/devblac/prw/internal/forge"
 	"github.com/devblac/prw/internal/github"
 	"github.com/devblac/prw/internal/notify"
 )
@@ -41,11 +42,6 @@ var broadcastCmd = &cobra.Command{
 			return nil
 		}
 
-		token := cfg.GetToken()
-		if token == "" {
-			return errMissingToken
-		}
-
 		filter := strings.ToLower(strings.TrimSpace(broadcastFilter))
 		if filter == "" {
 			filter = "all"
@@ -54,7 +50,7 @@ var broadcastCmd = &cobra.Command{
 			return fmt.Errorf("invalid --filter value %q (expected all, changed, or failing)", broadcastFilter)
 		}
 
-		client := newGitHubClient(token)
+		clients := map[string]prClient{}
 
 		webhookURL := broadcastWebhook
 		if webhookURL == "" {
@@ -70,6 +66,16 @@ var broadcastCmd = &cobra.Command{
 		var anySent bool
 		for i := range cfg.WatchedPRs {
 			pr := &cfg.WatchedPRs[i]
+
+			host := forge.NormalizeHost(pr.Host)
+			client, ok := clients[host]
+			if !ok {
+				if client, err = clientFor(cfg, host); err != nil {
+					fmt.Printf("Skipping %s/%s#%d: %v\n", pr.Owner, pr.Repo, pr.Number, err)
+					continue
+				}
+				clients[host] = client
+			}
 
 			ghPR, err := client.GetPullRequest(context.Background(), pr.Owner, pr.Repo, pr.Number)
 			if err != nil {
@@ -112,6 +118,7 @@ var broadcastCmd = &cobra.Command{
 			}
 
 			event := &notify.StatusChangeEvent{
+				Host:          pr.Host,
 				Owner:         pr.Owner,
 				Repo:          pr.Repo,
 				Number:        pr.Number,
