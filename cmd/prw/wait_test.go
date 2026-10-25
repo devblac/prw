@@ -50,6 +50,16 @@ type scriptedClient struct {
 	current       pollStep
 	afterCI       bool
 	logs          map[int64]string // job logs by check run id
+	workflowRuns  []github.WorkflowRun
+	attemptJobs   map[string][]github.Job // "runID/attempt"
+}
+
+func (c *scriptedClient) ListWorkflowRuns(ctx context.Context, owner, repo string, max int) ([]github.WorkflowRun, error) {
+	return c.workflowRuns, nil
+}
+
+func (c *scriptedClient) GetAttemptJobs(ctx context.Context, owner, repo string, runID int64, attempt int) ([]github.Job, error) {
+	return c.attemptJobs[fmt.Sprintf("%d/%d", runID, attempt)], nil
 }
 
 func (c *scriptedClient) GetPullRequest(ctx context.Context, owner, repo string, number int) (*github.PullRequest, error) {

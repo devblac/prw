@@ -95,7 +95,8 @@ Legend — Impact: 1–5 · Effort: S (≤½ day), M (1–2 days), L (3+ days) �
 - ✅ Codex follow-ups on #18/#19 — failed head re-check no longer accepted as "unchanged"; review-request PRs only dropped when proven withdrawn (open or 404), never on a cancelled or failed lookup; all review pages read.
 - ✅ #12 `prw checks <PR>` — done (buckets fail/cancel/pending/pass/neutral/skipping, durations, links, `--json`, exit 8 while running; verified live on devblac/docker-lint#5, zephyrproject-rtos/zephyr#105183 — 35 checks, superseded run hidden — and devblac/prw#13)
 - ✅ #15 Failed job log excerpt — done (`--logs` on `checks`/`wait`, MCP `get_failed_logs`; parser tested on a real staticcheck failure log; verified live on cloudposse/atmos#3476, #3422 and #2199 — a commit status — and over MCP stdio)
-- Next: #16 flakiness detection + status history
+- ✅ #16 Flakiness detection — done as `prw flaky` + MCP `get_flaky_checks` (failed-then-passed across attempts of the same run; verified live: grafana/grafana 4 flaky jobs in 300 runs, hashicorp/terraform "Unit Tests"; parallel fetching cut grafana from 24s to 9s). The "status history" half was dropped: low value for its cost.
+- Next: #17 packaging (Homebrew/Scoop) + keychain token storage, #8 `gh` extension publishing — both need owner decisions
 
 ## Planned
 
