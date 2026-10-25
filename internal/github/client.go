@@ -232,6 +232,75 @@ func (c *Client) GetCheckRuns(owner, repo, ref string) ([]CheckRun, error) {
 	return runs, nil
 }
 
+// SearchResultPR is a pull request returned by SearchPullRequests.
+type SearchResultPR struct {
+	Owner  string
+	Repo   string
+	Number int
+	Title  string
+}
+
+// SearchResult holds the pull requests matching a search query.
+type SearchResult struct {
+	PRs []SearchResultPR
+	// Total is how many items GitHub says match; it can exceed len(PRs) when the
+	// results were capped.
+	Total int
+	// Incomplete is set when GitHub timed out before finding every match, or when the
+	// results were capped, so absence from PRs doesn't prove a PR stopped matching.
+	Incomplete bool
+}
+
+const (
+	searchPerPage  = 100
+	maxSearchPages = 3
+)
+
+type searchIssuesResponse struct {
+	TotalCount        int  `json:"total_count"`
+	IncompleteResults bool `json:"incomplete_results"`
+	Items             []struct {
+		Number      int       `json:"number"`
+		Title       string    `json:"title"`
+		HTMLURL     string    `json:"html_url"`
+		PullRequest *struct{} `json:"pull_request"`
+	} `json:"items"`
+}
+
+// SearchPullRequests runs a GitHub issue search (e.g. "is:pr is:open author:@me") and
+// returns the pull requests it finds, up to 300. Qualifiers like @me need a token.
+func (c *Client) SearchPullRequests(query string) (*SearchResult, error) {
+	result := &SearchResult{}
+	for page := 1; page <= maxSearchPages; page++ {
+		path := fmt.Sprintf("/search/issues?q=%s&per_page=%d&page=%d", url.QueryEscape(query), searchPerPage, page)
+		var resp searchIssuesResponse
+		if err := c.getJSON(path, &resp); err != nil {
+			return nil, err
+		}
+		result.Total = resp.TotalCount
+		if resp.IncompleteResults {
+			result.Incomplete = true
+		}
+		for _, item := range resp.Items {
+			if item.PullRequest == nil {
+				continue // an issue, not a PR
+			}
+			owner, repo, number, err := ParsePRURL(item.HTMLURL)
+			if err != nil {
+				continue
+			}
+			result.PRs = append(result.PRs, SearchResultPR{Owner: owner, Repo: repo, Number: number, Title: item.Title})
+		}
+		if len(resp.Items) < searchPerPage || page*searchPerPage >= resp.TotalCount {
+			return result, nil
+		}
+	}
+	if result.Total > len(result.PRs) {
+		result.Incomplete = true
+	}
+	return result, nil
+}
+
 // FetchCIStatus fetches commit statuses and check runs for a commit and aggregates them.
 func FetchCIStatus(c CIFetcher, owner, repo, ref string) (*CIStatus, error) {
 	status, err := c.GetCombinedStatus(owner, repo, ref)

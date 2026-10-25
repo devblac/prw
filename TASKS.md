@@ -87,7 +87,9 @@ Legend — Impact: 1–5 · Effort: S (≤½ day), M (1–2 days), L (3+ days) �
 - ✅ #13 `prw wait <PR>` — done (exit codes 0/1/2/3/130, fail-fast, follows new pushes, retries transient errors, `--json`; verified live against devblac/prw#5 and real process exit codes)
 - ✅ #9 API efficiency — done (ETag/If-None-Match cache; measured live: 15 steady-state requests = 0 quota; rate-limit detection + pause in `run`, wait-for-reset in `wait`). GraphQL batching not needed for now.
 - ✅ #14 MCP server — done (`prw mcp`: 5 tools, progress + cancellation, protocol 2025-06-18/2025-03-26/2024-11-05; verified end-to-end over stdio against the real API with the token from `gh auth token`). Not yet tried inside a real MCP client.
-- Next: #10 `prw watch --mine` / `--review-requested`
+- ✅ #10 `prw watch --mine` / `--review-requested` — done (search-backed subscriptions refreshed every 5 min by `prw run`; verified live: 18 open PRs across 7 repos found, CI checked, cleanly removed by `unwatch --mine`)
+- 🆕 #18 **Report "no CI" instead of `pending` forever** (found while testing #10: 14 of 18 real PRs have zero checks — repos without CI, or stacked PRs whose base isn't `main`). Today `prw wait` / `wait_for_ci` would wait until the timeout on them. Needs a grace period after the last push (CI takes a moment to register checks) before concluding "no CI". Impact 4, effort S–M.
+- Next: #18, then #11 review & mergeability events
 
 ## Planned
 
