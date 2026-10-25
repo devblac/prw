@@ -32,9 +32,10 @@ func captureStdout(fn func() error) (string, error) {
 	}()
 
 	io.Copy(&buf, r)
-	os.Stdout = oldStdout
-
+	// Restore stdout only after receiving from errCh: the channel orders fn's reads
+	// of os.Stdout before this write (the pipe closing doesn't, for the race detector).
 	err := <-errCh
+	os.Stdout = oldStdout
 	return buf.String(), err
 }
 
