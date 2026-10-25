@@ -29,6 +29,7 @@ const (
 	colorSuccess = 0x2EA043
 	colorFailure = 0xD1242F
 	colorPending = 0xDBAB09
+	colorNoCI    = 0x8C959F
 )
 
 // IsValidWebhookFormat reports whether value is a supported webhook format.
@@ -110,6 +111,8 @@ func stateEmoji(state string) string {
 		return "✅"
 	case "failure", "error":
 		return "❌"
+	case github.StateNoCI:
+		return "⚪"
 	default:
 		return "⏳"
 	}
@@ -121,6 +124,8 @@ func stateColor(state string) int {
 		return colorSuccess
 	case "failure", "error":
 		return colorFailure
+	case github.StateNoCI:
+		return colorNoCI
 	default:
 		return colorPending
 	}

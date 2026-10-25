@@ -24,6 +24,7 @@ const (
 	exitWaitFailed      = 1
 	exitWaitTimeout     = 2
 	exitWaitError       = 3
+	exitWaitNoCI        = 4
 	exitWaitInterrupted = 130
 
 	// maxConsecutiveWaitErrors is how many transient API errors in a row `prw wait`
@@ -82,6 +83,8 @@ Exit codes:
   1    CI failed (failure or error)
   2    timed out while CI was still pending
   3    other error (invalid URL, API error, PR closed without merging)
+  4    the PR has no CI: no checks or statuses reported within 3 minutes of its
+       last update (e.g. the repository has no CI, or none runs for its base branch)
   130  interrupted (Ctrl+C)
 
 Progress goes to stderr; the result goes to stdout (as JSON with --json).`,
@@ -177,6 +180,9 @@ func (r *waitResult) exitErr() error {
 		return waitErrorf(exitWaitFailed, "CI of %s finished with %s (%d failed check(s))", pr, r.State, len(r.FailedChecks))
 	case "closed":
 		return waitErrorf(exitWaitError, "%s was closed without merging", pr)
+	case github.StateNoCI:
+		// Not a success: `prw wait && deploy` must not deploy a PR that no CI looked at.
+		return waitErrorf(exitWaitNoCI, "%s has no CI: no checks or statuses were reported", pr)
 	}
 	return waitErrorf(exitWaitError, "unexpected state %q for %s", r.State, pr)
 }
@@ -267,6 +273,7 @@ func pollOnce(client ciClient, result *waitResult) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	github.ApplyNoCI(ci, pr.UpdatedAt, time.Now())
 	result.State = ci.State
 	result.FailedChecks = ci.FailedChecks
 	result.TotalChecks = ci.Total
@@ -313,6 +320,8 @@ func printWaitResult(w io.Writer, r *waitResult, asJSON bool) error {
 		icon = "✅"
 	case "failure", "error", "closed":
 		icon = "❌"
+	case github.StateNoCI:
+		icon = "⚪"
 	}
 	header := fmt.Sprintf("%s %s/%s#%d", icon, r.Owner, r.Repo, r.Number)
 	if r.Title != "" {
@@ -328,6 +337,8 @@ func printWaitResult(w io.Writer, r *waitResult, asJSON bool) error {
 		fmt.Fprintf(w, "Timed out after %s; CI is still %s\n", elapsed, r.State)
 	case r.State == "merged" || r.State == "closed":
 		fmt.Fprintf(w, "PR was %s (after %s)\n", r.State, elapsed)
+	case r.State == github.StateNoCI:
+		fmt.Fprintf(w, "No CI: no checks or statuses were reported for this PR (after %s)\n", elapsed)
 	default:
 		fmt.Fprintf(w, "CI: %s (%d check(s), %s)\n", r.State, r.TotalChecks, elapsed)
 	}
