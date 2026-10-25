@@ -215,7 +215,7 @@ func TestMCP_ToolsList(t *testing.T) {
 			t.Errorf("%s is listed but has no handler", name)
 		}
 	}
-	for _, want := range []string{"get_ci_status", "wait_for_ci", "get_failed_logs", "list_watched", "watch_pr", "unwatch_pr"} {
+	for _, want := range []string{"get_ci_status", "wait_for_ci", "get_failed_logs", "get_flaky_checks", "list_watched", "watch_pr", "unwatch_pr"} {
 		if !names[want] {
 			t.Errorf("tool %s missing from tools/list", want)
 		}

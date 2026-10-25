@@ -80,6 +80,7 @@ Authentication is the same as for every other command (gh auth login, GITHUB_TOK
 type mcpClient interface {
 	ciClient
 	github.LogFetcher
+	github.FlakyFetcher
 }
 
 func defaultMCPClient() (mcpClient, error) {
@@ -484,6 +485,29 @@ var mcpTools = []map[string]interface{}{
 		"annotations": map[string]interface{}{"readOnlyHint": true, "openWorldHint": true},
 	},
 	{
+		"name":        "get_flaky_checks",
+		"title":       "Find flaky checks",
+		"description": "Find a repository's flaky GitHub Actions jobs: jobs that failed and then passed when the workflow run was re-run on the same commit, in its recent runs. Use it when a check fails to see whether that job is known to fail intermittently (a re-run may fix it) rather than because of the change. Returns workflow, job, how many re-runs it flaked in, when last, and the latest failed attempt's link. Scanning takes a few seconds on large repositories.",
+		"inputSchema": map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"repo": map[string]interface{}{
+					"type":        "string",
+					"description": "The repository as owner/repo, or any GitHub URL in it (a PR URL works).",
+				},
+				"runs": map[string]interface{}{
+					"type":        "integer",
+					"description": "How many recent workflow runs to scan (default 300, max 1000).",
+					"minimum":     1,
+					"maximum":     github.MaxFlakyRuns,
+				},
+			},
+			"required":             []string{"repo"},
+			"additionalProperties": false,
+		},
+		"annotations": map[string]interface{}{"readOnlyHint": true, "openWorldHint": true},
+	},
+	{
 		"name":        "list_watched",
 		"title":       "List watched PRs",
 		"description": "List the pull requests on prw's local watch list with their last known CI state. Reads local state only; use get_ci_status for fresh data.",
@@ -525,12 +549,13 @@ var mcpToolHandlers map[string]mcpToolHandler
 func init() {
 	// Assigned in init to avoid an initialization cycle (handlers reference mcpServer).
 	mcpToolHandlers = map[string]mcpToolHandler{
-		"get_ci_status":   toolGetCIStatus,
-		"wait_for_ci":     toolWaitForCI,
-		"get_failed_logs": toolGetFailedLogs,
-		"list_watched":    toolListWatched,
-		"watch_pr":        toolWatchPR,
-		"unwatch_pr":      toolUnwatchPR,
+		"get_ci_status":    toolGetCIStatus,
+		"wait_for_ci":      toolWaitForCI,
+		"get_failed_logs":  toolGetFailedLogs,
+		"get_flaky_checks": toolGetFlakyChecks,
+		"list_watched":     toolListWatched,
+		"watch_pr":         toolWatchPR,
+		"unwatch_pr":       toolUnwatchPR,
 	}
 }
 
@@ -686,6 +711,45 @@ func toolGetFailedLogs(ctx context.Context, s *mcpServer, args json.RawMessage, 
 		Content:           []mcpContent{{Type: "text", Text: fmt.Sprintf("%d failed check(s) on %s:\n\n%s", len(logs), ref, failedLogsText(logs))}},
 		StructuredContent: data,
 	}
+}
+
+func toolGetFlakyChecks(ctx context.Context, s *mcpServer, args json.RawMessage, _ io.Writer) mcpToolResult {
+	var opts struct {
+		Repo string `json:"repo"`
+		Runs int    `json:"runs"`
+	}
+	if err := json.Unmarshal(args, &opts); err != nil {
+		return toolError("invalid arguments: %v", err)
+	}
+	owner, repo, err := parseRepoArg(opts.Repo)
+	if err != nil {
+		return toolError("%v", err)
+	}
+	client, err := s.githubClient()
+	if err != nil {
+		return toolError("%v", err)
+	}
+	report, err := github.FindFlaky(ctx, client, owner, repo, opts.Runs)
+	if err != nil {
+		return toolError("failed to scan %s/%s: %v", owner, repo, err)
+	}
+	return toolOK(flakySummary(report), report)
+}
+
+// flakySummary is the one-line answer for an agent.
+func flakySummary(r *github.FlakyReport) string {
+	scope := fmt.Sprintf("%s/%s: %d recent workflow run(s) scanned, %d re-run", r.Owner, r.Repo, r.Scanned, r.Reruns)
+	switch {
+	case r.Reruns == 0:
+		return scope + "; none was re-run, so flakiness can't be told apart from real failures."
+	case len(r.Flaky) == 0:
+		return scope + "; no job failed and then passed on re-run."
+	}
+	names := make([]string, 0, len(r.Flaky))
+	for _, f := range r.Flaky {
+		names = append(names, fmt.Sprintf("%s / %s (%dx)", f.Workflow, f.Job, f.Count))
+	}
+	return scope + ". Flaky: " + strings.Join(names, ", ") + "."
 }
 
 type watchedPROutput struct {

@@ -31,7 +31,8 @@ The tool is deliberately minimal. It does one thing well: watch PRs and tell you
 
 ## Features
 
-- **`prw checks`**: every check of a PR with its result, duration and link
+- **`prw checks`**: every check of a PR with its result, duration and link — and with `--logs`, the output of the step that failed
+- **`prw flaky`**: find a repository's flaky jobs (failed, then passed on re-run of the same commit)
 - **`prw wait`**: block until a PR's CI finishes and exit 0/1/2 — for scripts, pipelines and AI coding agents
 - **MCP server** (`prw mcp`): lets Claude Code, Claude Desktop, Cursor and other agents check and wait for PR CI as tools
 - **Auto-watch**: `prw watch --mine` / `--review-requested` follow your PRs and review requests across all repositories, no URLs needed
@@ -301,6 +302,22 @@ $ prw checks https://github.com/owner/repo/pull/123 --logs
 
 `--log-lines` sets how many lines (default 40). At most 5 job logs are downloaded per command. Checks from other CI systems (and legacy commit statuses) have no log in the API, so you get their link instead. Logs expire after GitHub's retention period (90 days by default). Fine-grained tokens need the **Actions: read** permission.
 
+## Finding flaky checks: `prw flaky`
+
+A job that fails and then passes when its workflow run is re-run — same commit, same code — is flaky. `prw flaky` scans a repository's recent GitHub Actions runs (300 by default, `--runs` up to 1000) for exactly that:
+
+```
+$ prw flaky grafana/grafana
+grafana/grafana: scanned 300 workflow run(s) since 2026-10-24, 3 of them re-run.
+
+FLAKED  WORKFLOW            JOB                         LAST SEEN         LATEST FAILED ATTEMPT
+1x      Backend Unit Tests  Grafana Enterprise (3/8)    2026-10-24 15:32  https://github.com/grafana/grafana/actions/runs/…/job/…
+1x      Integration Tests   Sqlite Enterprise (2/16)    2026-10-24 15:25  https://github.com/grafana/grafana/actions/runs/…/job/…
+1x      End-to-end tests    Playwright E2E tests (5/8)  2026-10-24 07:55  https://github.com/grafana/grafana/actions/runs/…/job/…
+```
+
+It takes a repository (`owner/repo`) or any GitHub URL in it, such as a PR's. Only re-run runs can tell flakiness apart from real failures, and jobs cancelled because another job failed first don't count. `--json` for scripts. It costs a few requests per 100 runs plus a couple per re-run run; on large repositories GitHub takes a few seconds per request, so prw fetches in parallel.
+
 ## Using prw from AI agents: `prw mcp`
 
 `prw mcp` runs a [Model Context Protocol](https://modelcontextprotocol.io) server over stdio, so coding agents can check a PR's CI and wait for it after pushing — and read which checks failed — without screen-scraping `gh` output.
@@ -327,6 +344,7 @@ Tools:
 |------|--------------|
 | `get_ci_status` | Current state of a PR (`success`, `failure`, `error`, `pending`, `merged`, `closed`, `no_ci`), check counts, failed checks with links. Returns immediately. |
 | `get_failed_logs` | For each failed GitHub Actions job, the output of the step that failed (last `max_lines` lines up to the error, default 40). What an agent needs to fix the failure without a browser. |
+| `get_flaky_checks` | A repository's jobs that failed and then passed on re-run of the same commit, with counts and links — so an agent can tell a known-flaky failure from one its change caused. |
 | `wait_for_ci` | Blocks until CI finishes (`timeout_seconds` default 600, max 3600). Fails fast on the first failed check, follows new pushes, sends progress notifications. On timeout it returns `pending` with `timed_out: true` so the agent can call it again. |
 | `list_watched` | PRs on the local watch list with their last known state. |
 | `watch_pr` / `unwatch_pr` | Add or remove a PR from the watch list (a running `prw run` picks it up). |
