@@ -569,7 +569,7 @@ func toolGetCIStatus(ctx context.Context, s *mcpServer, args json.RawMessage, _ 
 		return toolError("%v", err)
 	}
 	result := &waitResult{Owner: owner, Repo: repo, Number: number, URL: github.FormatPRURL(owner, repo, number)}
-	if _, err := pollOnce(client, result); err != nil {
+	if _, err := pollOnce(ctx, client, result); err != nil {
 		return toolError("failed to get CI status of %s/%s#%d: %v", owner, repo, number, err)
 	}
 	return toolOK(ciSummary(result), result)
@@ -666,7 +666,7 @@ func toolWatchPR(ctx context.Context, s *mcpServer, args json.RawMessage, _ io.W
 	if err != nil {
 		return toolError("%v", err)
 	}
-	pr, err := client.GetPullRequest(owner, repo, number)
+	pr, err := client.GetPullRequest(ctx, owner, repo, number)
 	if err != nil {
 		return toolError("failed to fetch %s/%s#%d: %v", owner, repo, number, err)
 	}

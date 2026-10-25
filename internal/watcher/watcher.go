@@ -12,9 +12,9 @@ import (
 
 // GitHubClient defines the interface for GitHub operations.
 type GitHubClient interface {
-	GetPullRequest(owner, repo string, number int) (*github.PullRequest, error)
-	GetCombinedStatus(owner, repo, ref string) (*github.CombinedStatus, error)
-	GetCheckRuns(owner, repo, ref string) ([]github.CheckRun, error)
+	GetPullRequest(ctx context.Context, owner, repo string, number int) (*github.PullRequest, error)
+	GetCombinedStatus(ctx context.Context, owner, repo, ref string) (*github.CombinedStatus, error)
+	GetCheckRuns(ctx context.Context, owner, repo, ref string) ([]github.CheckRun, error)
 }
 
 // ConfigStore defines the interface for config persistence.
@@ -70,10 +70,10 @@ func (w *Watcher) Run(ctx context.Context) error {
 
 	// Check immediately on startup
 	if len(w.config.AutoWatch) > 0 {
-		w.syncAutoWatch()
+		w.syncAutoWatch(ctx)
 		w.reloadWatchedPRs()
 	}
-	w.checkAllPRs()
+	w.checkAllPRs(ctx)
 
 	for {
 		select {
@@ -86,10 +86,10 @@ func (w *Watcher) Run(ctx context.Context) error {
 			}
 			w.reloadWatchedPRs()
 			if len(w.config.AutoWatch) > 0 && w.now().Sub(w.lastAutoWatch) >= AutoWatchInterval {
-				w.syncAutoWatch()
+				w.syncAutoWatch(ctx)
 				w.reloadWatchedPRs()
 			}
-			w.checkAllPRs()
+			w.checkAllPRs(ctx)
 		}
 	}
 }
@@ -114,23 +114,28 @@ func (w *Watcher) reloadWatchedPRs() {
 func (w *Watcher) RunOnce(ctx context.Context) error {
 	fmt.Printf("Running one-time check with %d second poll interval...\n", w.config.PollIntervalSeconds)
 	if len(w.config.AutoWatch) > 0 {
-		w.syncAutoWatch()
+		w.syncAutoWatch(ctx)
 		w.reloadWatchedPRs()
 	}
 	if len(w.config.WatchedPRs) == 0 {
 		fmt.Println(noPRsMessage)
 		return nil
 	}
-	w.checkAllPRs()
+	w.checkAllPRs(ctx)
 	return nil
 }
 
-func (w *Watcher) checkAllPRs() {
+func (w *Watcher) checkAllPRs(ctx context.Context) {
 	var stillWatched, done []config.WatchedPR
 
 	for i := range w.config.WatchedPRs {
 		pr := w.config.WatchedPRs[i]
-		closed, err := w.checkPR(&pr)
+		closed, err := w.checkPR(ctx, &pr)
+		if err != nil && ctx.Err() != nil {
+			// Stopped mid-round (Ctrl-C): keep this and the remaining PRs unchanged.
+			stillWatched = append(stillWatched, w.config.WatchedPRs[i:]...)
+			break
+		}
 		if err != nil {
 			stillWatched = append(stillWatched, pr) // keep watching; preserve any partial update (e.g. title)
 			if limited, resetAt := github.IsRateLimited(err); limited {
@@ -176,9 +181,9 @@ func (w *Watcher) pauseForRateLimit(resetAt time.Time) {
 
 // checkPR checks one PR's CI status and reports whether it is now closed (merged or
 // not), in which case the caller should stop watching it.
-func (w *Watcher) checkPR(pr *config.WatchedPR) (closed bool, err error) {
+func (w *Watcher) checkPR(ctx context.Context, pr *config.WatchedPR) (closed bool, err error) {
 	// Fetch the PR to get its state and current head SHA
-	ghPR, err := w.client.GetPullRequest(pr.Owner, pr.Repo, pr.Number)
+	ghPR, err := w.client.GetPullRequest(ctx, pr.Owner, pr.Repo, pr.Number)
 	if err != nil {
 		return false, fmt.Errorf("failed to fetch PR: %w", err)
 	}
@@ -215,7 +220,7 @@ func (w *Watcher) checkPR(pr *config.WatchedPR) (closed bool, err error) {
 	currentSHA := ghPR.Head.SHA
 
 	// Aggregate commit statuses and check runs (GitHub Actions) for the head commit
-	ci, err := github.FetchCIStatus(w.client, pr.Owner, pr.Repo, currentSHA)
+	ci, err := github.FetchCIStatus(ctx, w.client, pr.Owner, pr.Repo, currentSHA)
 	if err != nil {
 		return false, fmt.Errorf("failed to fetch status: %w", err)
 	}
@@ -223,6 +228,11 @@ func (w *Watcher) checkPR(pr *config.WatchedPR) (closed bool, err error) {
 
 	currentState := ci.State
 	previousState := github.NormalizeState(pr.LastKnownState)
+	if previousState == github.StateNoCI && currentState == "pending" && ci.Total == 0 {
+		// Comments and label changes also bump updated_at, which restarts the grace
+		// period; until an actual check or status shows up, the PR still has no CI.
+		currentState = github.StateNoCI
+	}
 
 	// Check if status changed. Finding out that a PR has no CI is not a CI result, so
 	// it isn't announced (it would otherwise ping once for every such PR).

@@ -90,6 +90,7 @@ Legend — Impact: 1–5 · Effort: S (≤½ day), M (1–2 days), L (3+ days) �
 - ✅ #10 `prw watch --mine` / `--review-requested` — done (search-backed subscriptions refreshed every 5 min by `prw run`; verified live: 18 open PRs across 7 repos found, CI checked, cleanly removed by `unwatch --mine`)
 - 🆕 #18 **Report "no CI" instead of `pending` forever** (found while testing #10: 14 of 18 real PRs have zero checks — repos without CI, or stacked PRs whose base isn't `main`). Today `prw wait` / `wait_for_ci` would wait until the timeout on them. Needs a grace period after the last push (CI takes a moment to register checks) before concluding "no CI". Impact 4, effort S–M.
 - ✅ #18 `no_ci` state — done (0 checks + PR not updated for 3 min → `no_ci`; `prw wait` exits 4; no notification; verified live: 11 real PRs went from `pending` to `no_ci`, `prw wait` on one returns in 2s instead of the 30-min timeout)
+- ✅ Codex review feedback on #6, #7, #13–#17 — done in `fix/codex-review`: superseded check runs (verified live on zephyrproject-rtos/zephyr#105183: was `failure`, now `success`), head re-check in `prw wait`, context propagation into every API request, closed review-request PRs keep their notification, no `no_ci` flapping, ETag cache eviction, GovSlack.
 - Next: #11 review & mergeability events
 
 ## Planned

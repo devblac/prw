@@ -14,6 +14,7 @@
 package github
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"os"
@@ -40,7 +41,7 @@ func integrationClient(t *testing.T) *Client {
 func TestIntegration_ActionsOnlyCommitResolvesToSuccess(t *testing.T) {
 	c := integrationClient(t)
 
-	status, err := c.GetCombinedStatus(fixtureOwner, fixtureRepo, fixtureActionsOnlySHA)
+	status, err := c.GetCombinedStatus(context.Background(), fixtureOwner, fixtureRepo, fixtureActionsOnlySHA)
 	if err != nil {
 		t.Fatalf("GetCombinedStatus: %v", err)
 	}
@@ -49,7 +50,7 @@ func TestIntegration_ActionsOnlyCommitResolvesToSuccess(t *testing.T) {
 		t.Logf("note: legacy status changed to state=%q total_count=%d", status.State, status.TotalCount)
 	}
 
-	runs, err := c.GetCheckRuns(fixtureOwner, fixtureRepo, fixtureActionsOnlySHA)
+	runs, err := c.GetCheckRuns(context.Background(), fixtureOwner, fixtureRepo, fixtureActionsOnlySHA)
 	if err != nil {
 		t.Fatalf("GetCheckRuns: %v", err)
 	}
@@ -65,7 +66,7 @@ func TestIntegration_ActionsOnlyCommitResolvesToSuccess(t *testing.T) {
 }
 
 func TestIntegration_FetchCIStatus(t *testing.T) {
-	ci, err := FetchCIStatus(integrationClient(t), fixtureOwner, fixtureRepo, fixtureActionsOnlySHA)
+	ci, err := FetchCIStatus(context.Background(), integrationClient(t), fixtureOwner, fixtureRepo, fixtureActionsOnlySHA)
 	if err != nil {
 		t.Fatalf("FetchCIStatus: %v", err)
 	}
@@ -78,7 +79,7 @@ func TestIntegration_FetchCIStatus(t *testing.T) {
 }
 
 func TestIntegration_MergedPullRequest(t *testing.T) {
-	pr, err := integrationClient(t).GetPullRequest(fixtureOwner, fixtureRepo, fixtureMergedPR)
+	pr, err := integrationClient(t).GetPullRequest(context.Background(), fixtureOwner, fixtureRepo, fixtureMergedPR)
 	if err != nil {
 		t.Fatalf("GetPullRequest: %v", err)
 	}
@@ -116,13 +117,13 @@ func TestIntegration_ConditionalRequestsAreFree(t *testing.T) {
 	rec := &statusRecorder{}
 	c.HTTPClient.Transport = rec
 
-	first, err := c.GetPullRequest(fixtureOwner, fixtureRepo, fixtureMergedPR)
+	first, err := c.GetPullRequest(context.Background(), fixtureOwner, fixtureRepo, fixtureMergedPR)
 	if err != nil {
 		t.Fatalf("first request: %v", err)
 	}
 	before := c.RateLimit()
 
-	second, err := c.GetPullRequest(fixtureOwner, fixtureRepo, fixtureMergedPR)
+	second, err := c.GetPullRequest(context.Background(), fixtureOwner, fixtureRepo, fixtureMergedPR)
 	if err != nil {
 		t.Fatalf("second request: %v", err)
 	}
@@ -146,7 +147,7 @@ func TestIntegration_ConditionalRequestsAreFree(t *testing.T) {
 }
 
 func TestIntegration_MissingPullRequestIs404(t *testing.T) {
-	_, err := integrationClient(t).GetPullRequest(fixtureOwner, fixtureRepo, 999999)
+	_, err := integrationClient(t).GetPullRequest(context.Background(), fixtureOwner, fixtureRepo, 999999)
 	var apiErr *APIError
 	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusNotFound {
 		t.Errorf("expected a 404 APIError, got %v", err)

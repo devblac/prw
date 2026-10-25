@@ -59,7 +59,7 @@ func DetectWebhookFormat(rawURL string) string {
 	}
 	host := strings.ToLower(u.Hostname())
 	switch {
-	case host == "hooks.slack.com":
+	case host == "hooks.slack.com" || host == "hooks.slack-gov.com": // GovSlack uses its own domain
 		return WebhookFormatSlack
 	case (host == "discord.com" || host == "discordapp.com" || strings.HasSuffix(host, ".discord.com") || strings.HasSuffix(host, ".discordapp.com")) &&
 		strings.HasPrefix(u.Path, "/api/webhooks/"):

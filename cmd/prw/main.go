@@ -157,7 +157,7 @@ func watchSinglePR(prURL string) error {
 
 	// Try to fetch the PR to validate it exists and get title
 	client := newGitHubClient(token)
-	pr, err := client.GetPullRequest(owner, repo, number)
+	pr, err := client.GetPullRequest(context.Background(), owner, repo, number)
 	if err != nil {
 		return fmt.Errorf("failed to fetch PR: %w", err)
 	}
@@ -229,7 +229,7 @@ func enableAutoWatch(sources []string) error {
 	}
 
 	// Run the searches now so the user sees the result immediately.
-	res, err := watcher.SyncAutoWatch(newGitHubClient(token), sources)
+	res, err := watcher.SyncAutoWatch(context.Background(), newGitHubClient(token), sources)
 	for _, warning := range res.Warnings {
 		fmt.Printf("Warning: %s\n", warning)
 	}

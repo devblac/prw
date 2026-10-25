@@ -16,12 +16,12 @@ type countingClient struct {
 	prErr error
 }
 
-func (c *countingClient) GetPullRequest(owner, repo string, number int) (*github.PullRequest, error) {
+func (c *countingClient) GetPullRequest(ctx context.Context, owner, repo string, number int) (*github.PullRequest, error) {
 	c.calls++
 	if c.prErr != nil {
 		return nil, c.prErr
 	}
-	return c.mockGitHubClient.GetPullRequest(owner, repo, number)
+	return c.mockGitHubClient.GetPullRequest(context.Background(), owner, repo, number)
 }
 
 func TestCheckAllPRs_StopsAndPausesOnRateLimit(t *testing.T) {
@@ -37,7 +37,7 @@ func TestCheckAllPRs_StopsAndPausesOnRateLimit(t *testing.T) {
 	w := New(client, cfg, &mockNotifier{})
 	w.now = func() time.Time { return reset.Add(-10 * time.Minute) }
 
-	w.checkAllPRs()
+	w.checkAllPRs(context.Background())
 
 	if client.calls != 1 {
 		t.Errorf("must stop after the first rate-limited request, made %d", client.calls)
@@ -95,7 +95,7 @@ func TestCheckAllPRs_OtherErrorsDoNotPause(t *testing.T) {
 	}
 	w := New(client, cfg, &mockNotifier{})
 
-	w.checkAllPRs()
+	w.checkAllPRs(context.Background())
 
 	if client.calls != 2 {
 		t.Errorf("a non-rate-limit error must not stop the round, made %d calls", client.calls)

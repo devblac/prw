@@ -25,16 +25,46 @@ type pollStep struct {
 	status *github.CombinedStatus
 	runs   []github.CheckRun
 	ciErr  error
+	// movedTo, if set, is what the PR looks like when waitForCI re-reads it to
+	// confirm the head hasn't moved, i.e. a push that landed during this poll.
+	movedTo *github.PullRequest
+	// revalidate, if set, runs on that re-read and its error is returned.
+	revalidate func() error
 }
 
-// scriptedClient returns steps[i] on the i-th poll (repeating the last one).
+// scriptedClient returns steps[i] on the i-th poll (repeating the last one). A PR
+// lookup right after a poll that found a final CI result is the head re-check, not a
+// new poll.
 type scriptedClient struct {
-	steps   []pollStep
-	polls   int
-	current pollStep
+	steps         []pollStep
+	polls         int
+	revalidations int
+	current       pollStep
+	afterCI       bool
 }
 
-func (c *scriptedClient) GetPullRequest(owner, repo string, number int) (*github.PullRequest, error) {
+func (c *scriptedClient) GetPullRequest(ctx context.Context, owner, repo string, number int) (*github.PullRequest, error) {
+	if c.afterCI {
+		c.afterCI = false
+		status := c.current.status
+		if status == nil {
+			status = &github.CombinedStatus{State: "pending"}
+		}
+		ci := github.SummarizeCI(status, c.current.runs)
+		github.ApplyNoCI(ci, c.current.pr.UpdatedAt, time.Now())
+		if ci.State != "pending" {
+			c.revalidations++
+			if c.current.revalidate != nil {
+				if err := c.current.revalidate(); err != nil {
+					return nil, err
+				}
+			}
+			if c.current.movedTo != nil {
+				return c.current.movedTo, nil
+			}
+			return c.current.pr, nil
+		}
+	}
 	i := c.polls
 	if i >= len(c.steps) {
 		i = len(c.steps) - 1
@@ -44,7 +74,7 @@ func (c *scriptedClient) GetPullRequest(owner, repo string, number int) (*github
 	return c.current.pr, c.current.prErr
 }
 
-func (c *scriptedClient) GetCombinedStatus(owner, repo, ref string) (*github.CombinedStatus, error) {
+func (c *scriptedClient) GetCombinedStatus(ctx context.Context, owner, repo, ref string) (*github.CombinedStatus, error) {
 	if c.current.ciErr != nil {
 		return nil, c.current.ciErr
 	}
@@ -54,7 +84,8 @@ func (c *scriptedClient) GetCombinedStatus(owner, repo, ref string) (*github.Com
 	return &github.CombinedStatus{State: "pending"}, nil
 }
 
-func (c *scriptedClient) GetCheckRuns(owner, repo, ref string) ([]github.CheckRun, error) {
+func (c *scriptedClient) GetCheckRuns(ctx context.Context, owner, repo, ref string) ([]github.CheckRun, error) {
+	c.afterCI = true
 	return c.current.runs, nil
 }
 
