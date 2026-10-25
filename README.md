@@ -32,6 +32,7 @@ The tool is deliberately minimal. It does one thing well: watch PRs and tell you
 ## Features
 
 - **`prw wait`**: block until a PR's CI finishes and exit 0/1/2 — for scripts, pipelines and AI coding agents
+- **MCP server** (`prw mcp`): lets Claude Code, Claude Desktop, Cursor and other agents check and wait for PR CI as tools
 - **Auto-cleanup**: merged/closed PRs are notified once and dropped from the watch list by `prw run`
 - **Watch multiple PRs** from different repositories simultaneously
 - **Instant notifications** when CI status changes (pending, success, failure, error)
@@ -250,6 +251,37 @@ With `--json`, stdout is a single object:
 ```
 
 `state` is one of `success`, `failure`, `error`, `pending` (with `timed_out` or `interrupted` set), `merged`, or `closed`.
+
+## Using prw from AI agents: `prw mcp`
+
+`prw mcp` runs a [Model Context Protocol](https://modelcontextprotocol.io) server over stdio, so coding agents can check a PR's CI and wait for it after pushing — and read which checks failed — without screen-scraping `gh` output.
+
+**Claude Code:**
+
+```bash
+claude mcp add prw -- prw mcp
+```
+
+**Claude Desktop, Cursor and other clients** (add to the client's `mcpServers` JSON config):
+
+```json
+{
+  "mcpServers": {
+    "prw": { "command": "prw", "args": ["mcp"] }
+  }
+}
+```
+
+Tools:
+
+| Tool | What it does |
+|------|--------------|
+| `get_ci_status` | Current state of a PR (`success`, `failure`, `error`, `pending`, `merged`, `closed`), check counts, failed checks with links. Returns immediately. |
+| `wait_for_ci` | Blocks until CI finishes (`timeout_seconds` default 600, max 3600). Fails fast on the first failed check, follows new pushes, sends progress notifications. On timeout it returns `pending` with `timed_out: true` so the agent can call it again. |
+| `list_watched` | PRs on the local watch list with their last known state. |
+| `watch_pr` / `unwatch_pr` | Add or remove a PR from the watch list (a running `prw run` picks it up). |
+
+Results include a one-line summary for the model plus the full data as JSON (and as `structuredContent`). Authentication works like every other command — with `gh auth login` there's nothing to configure. All tools share one GitHub client, so the ETag cache keeps repeated polling free.
 
 ## Configuration
 
