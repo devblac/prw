@@ -7,8 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- `prw run` now notifies once (`merged` or `closed`) and automatically stops watching a PR once it is merged or closed, instead of polling it forever. This notification always fires, regardless of `--on`/`notification_filter`.
+## [0.4.0] - 2026-10-24
+
+prw now covers the whole PR lifecycle and is built for scripts and AI agents: it detects GitHub Actions results (previously reported as `pending` forever), works with Slack and Discord webhooks, and adds `prw wait`, `prw checks`, `prw flaky`, an MCP server, auto-watching your PRs, review and merge-conflict events, and failed-job log excerpts. It reuses your `gh` login and polls with conditional requests that cost no API quota.
 
 ### Added
 - `prw flaky <owner/repo | URL>`: finds flaky GitHub Actions jobs — jobs that failed and then passed when their workflow run was re-run on the same commit — in the repository's last `--runs` workflow runs (default 300, max 1000), grouped by workflow and job with counts, last occurrence and a link to the latest failed attempt; `--json`. Cancelled jobs (fail-fast victims) don't count. New MCP tool `get_flaky_checks`.
@@ -22,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `prw wait <PR_URL>`: blocks until the PR's CI finishes and exits `0` (success or merged), `1` (failed), `2` (timeout), `3` (other error) or `130` (interrupted). Fails fast on the first failed check, follows new pushes, retries transient API errors, and prints a JSON result with `--json`. Progress goes to stderr.
 - Zero-setup auth for GitHub CLI users: when no token is configured, `prw` uses `GH_TOKEN` or, failing that, the token from `gh auth token`. Lookup order: config file, `GITHUB_TOKEN`, `GH_TOKEN`, `gh auth token`. `prw config show` now reports the exact source.
 - Integration tests against the real GitHub API (`make integration`, build tag `integration`), run nightly by a new `Integration` workflow. They fail against the old status-only logic.
+- `prw run` now notifies once (`merged` or `closed`) and automatically stops watching a PR once it is merged or closed, instead of polling it forever. This notification always fires, regardless of `--on`/`notification_filter`.
+- Native OS notifications on macOS, Linux and Windows (`prw run --notify-native` or `prw config set notification_native true`), contributed by @marianogappa in #5.
+- Failed check names and links are included in console notifications and in the webhook payload (`failed_checks`)
 
 ### Fixed
 - A check whose workflow ran more than once for the same commit (e.g. an older run cancelled by `concurrency: cancel-in-progress`) kept the PR failed even after the newer run passed. Only the newest run of each check counts now, like on GitHub.
@@ -47,8 +51,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Webhook requests now time out after 10 seconds instead of waiting indefinitely, and webhook errors include the response body.
 - CI status now aggregates GitHub Check Runs (GitHub Actions) together with legacy commit statuses. Previously, repositories using only GitHub Actions were reported as `pending` forever and never triggered notifications.
 
+## [0.3.0] - 2025-12-16
+
 ### Added
-- Failed check names and links are included in console notifications and in the webhook payload (`failed_checks`)
 - Cross-platform prebuilt binaries (Linux, macOS, Windows) via GitHub Releases
 - Automated release workflow for tagged versions
 - Issue and pull request templates
@@ -75,7 +80,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Complete documentation: README, CONTRIBUTING, SECURITY, QUICKSTART
 - MIT license
 
-[Unreleased]: https://github.com/devblac/prw/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/devblac/prw/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/devblac/prw/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/devblac/prw/releases/tag/v0.3.0
 [0.2.0]: https://github.com/devblac/prw/releases/tag/v0.2.0
 [0.1.0]: https://github.com/devblac/prw/releases/tag/v0.1.0
 
