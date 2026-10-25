@@ -27,6 +27,9 @@ type Config struct {
 	GitHubToken         string `json:"github_token,omitempty"`
 	NotificationFilter  string `json:"notification_filter,omitempty"`
 	NotificationNative  bool   `json:"notification_native,omitempty"`
+	// DisablePREvents turns off review (approved / changes requested) and merge
+	// (conflict / ready to merge) notifications; `pr_events` in `prw config`.
+	DisablePREvents bool `json:"disable_pr_events,omitempty"`
 
 	// AutoWatch lists the searches (AutoWatchMine, AutoWatchReviewRequested) whose
 	// matching PRs are added to the watch list automatically.
@@ -101,6 +104,10 @@ type WatchedPR struct {
 	LastKnownState string    `json:"last_known_state,omitempty"`
 	LastChecked    time.Time `json:"last_checked,omitempty"`
 	Title          string    `json:"title,omitempty"`
+	// LastReviewState and LastMergeState are the review decision and merge state
+	// (github.Review* / github.Merge*) seen on the last check; empty until observed.
+	LastReviewState string `json:"last_review_state,omitempty"`
+	LastMergeState  string `json:"last_merge_state,omitempty"`
 	// Source is the auto-watch source that added this PR, or empty if it was added by
 	// hand with `prw watch <PR_URL>`.
 	Source string `json:"source,omitempty"`
@@ -280,6 +287,8 @@ func (c *Config) ApplyPRState(pr WatchedPR) bool {
 			w.LastKnownSHA = pr.LastKnownSHA
 			w.LastKnownState = pr.LastKnownState
 			w.LastChecked = pr.LastChecked
+			w.LastReviewState = pr.LastReviewState
+			w.LastMergeState = pr.LastMergeState
 			if pr.Title != "" {
 				w.Title = pr.Title
 			}

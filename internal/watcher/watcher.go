@@ -15,6 +15,7 @@ type GitHubClient interface {
 	GetPullRequest(ctx context.Context, owner, repo string, number int) (*github.PullRequest, error)
 	GetCombinedStatus(ctx context.Context, owner, repo, ref string) (*github.CombinedStatus, error)
 	GetCheckRuns(ctx context.Context, owner, repo, ref string) ([]github.CheckRun, error)
+	GetReviews(ctx context.Context, owner, repo string, number int) ([]github.Review, error)
 }
 
 // ConfigStore defines the interface for config persistence.
@@ -236,8 +237,10 @@ func (w *Watcher) checkPR(ctx context.Context, pr *config.WatchedPR) (closed boo
 
 	// Check if status changed. Finding out that a PR has no CI is not a CI result, so
 	// it isn't announced (it would otherwise ping once for every such PR).
+	notifiedCI := false
 	if previousState != "" && previousState != currentState && currentState != github.StateNoCI &&
 		shouldNotify(w.config.NotificationFilter, currentState) {
+		notifiedCI = true
 		event := &notify.StatusChangeEvent{
 			Owner:         pr.Owner,
 			Repo:          pr.Repo,
@@ -260,7 +263,89 @@ func (w *Watcher) checkPR(ctx context.Context, pr *config.WatchedPR) (closed boo
 	pr.LastKnownState = currentState
 	pr.LastChecked = time.Now()
 
+	if !w.config.DisablePREvents {
+		if err := w.checkPREvents(ctx, pr, ghPR, notifiedCI); err != nil {
+			return false, err
+		}
+	}
 	return false, nil
+}
+
+// checkPREvents notifies about changes of the PR's review decision and merge state.
+// notifiedCI tells whether a CI notification was just sent for this PR. Nothing is
+// announced the first time a PR is seen (the previous state is empty).
+func (w *Watcher) checkPREvents(ctx context.Context, pr *config.WatchedPR, ghPR *github.PullRequest, notifiedCI bool) error {
+	reviews, err := w.client.GetReviews(ctx, pr.Owner, pr.Repo, pr.Number)
+	if err != nil {
+		return fmt.Errorf("failed to fetch reviews: %w", err)
+	}
+	notified := notifiedCI
+
+	review := github.ReviewDecision(reviews)
+	if prev := pr.LastReviewState; prev != "" && prev != review && review != github.ReviewNone &&
+		shouldNotifyPREvent(w.config.NotificationFilter, review) {
+		w.notifyPREvent(pr, ghPR, notify.EventKindReview, prev, review)
+		notified = true
+	}
+	pr.LastReviewState = review
+
+	merge := github.MergeStatus(ghPR)
+	if merge == "" {
+		return nil // GitHub is still computing it; keep the last known state
+	}
+	if prev := pr.LastMergeState; prev != "" && prev != merge && mergeWorthNotifying(prev, merge, notified) &&
+		shouldNotifyPREvent(w.config.NotificationFilter, merge) {
+		w.notifyPREvent(pr, ghPR, notify.EventKindMerge, prev, merge)
+	}
+	pr.LastMergeState = merge
+	return nil
+}
+
+// mergeWorthNotifying decides which merge state changes are announced: new conflicts,
+// and a PR becoming ready to merge after something other than its CI was holding it
+// back (branch protection, conflicts, an outdated branch). Without branch protection a
+// PR goes from unstable to ready as soon as CI passes, which the CI notification
+// already says; the same goes for an approval that unblocks it, so "ready" isn't sent
+// together with another notification.
+func mergeWorthNotifying(prev, merge string, notified bool) bool {
+	switch merge {
+	case github.MergeConflict:
+		return true
+	case github.MergeReady:
+		return !notified && (prev == github.MergeBlocked || prev == github.MergeConflict || prev == github.MergeBehind)
+	}
+	return false
+}
+
+func (w *Watcher) notifyPREvent(pr *config.WatchedPR, ghPR *github.PullRequest, kind, prev, current string) {
+	event := &notify.StatusChangeEvent{
+		Kind:          kind,
+		Owner:         pr.Owner,
+		Repo:          pr.Repo,
+		Number:        pr.Number,
+		Title:         pr.Title,
+		PreviousState: prev,
+		CurrentState:  current,
+		SHA:           ghPR.Head.SHA,
+		Timestamp:     time.Now(),
+	}
+	if err := w.notifier.Notify(event); err != nil {
+		fmt.Printf("Warning: notification failed: %v\n", err)
+	}
+}
+
+// shouldNotifyPREvent applies the notification filter to review and merge events:
+// "fail" keeps the ones that need action (changes requested, conflicts), "success"
+// the good news (approved, ready to merge).
+func shouldNotifyPREvent(filter, state string) bool {
+	switch config.NormalizeNotificationFilter(filter) {
+	case config.NotificationFilterFail:
+		return state == github.ReviewChangesRequested || state == github.MergeConflict
+	case config.NotificationFilterSuccess:
+		return state == github.ReviewApproved || state == github.MergeReady
+	default:
+		return true
+	}
 }
 
 func shouldNotify(filter, currentState string) bool {
