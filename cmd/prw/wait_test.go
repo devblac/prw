@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/devblac/prw/internal/config"
+	"github.com/devblac/prw/internal/forge"
 	"github.com/devblac/prw/internal/github"
 )
 
@@ -149,7 +150,7 @@ func TestWaitForCI_PendingThenSuccess(t *testing.T) {
 	}}
 	var progress bytes.Buffer
 
-	result, err := waitForCI(context.Background(), client, "o", "r", 1, time.Second, &progress)
+	result, err := waitForCI(context.Background(), client, forge.Ref{Owner: "o", Repo: "r", Number: 1}, time.Second, &progress)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -178,7 +179,7 @@ func TestWaitForCI_FailsFast(t *testing.T) {
 		{pr: openPR("sha"), runs: []github.CheckRun{run("Lint", "completed", "failure"), run("E2E", "in_progress", "")}},
 	}}
 
-	result, err := waitForCI(context.Background(), client, "o", "r", 1, time.Second, &bytes.Buffer{})
+	result, err := waitForCI(context.Background(), client, forge.Ref{Owner: "o", Repo: "r", Number: 1}, time.Second, &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +200,7 @@ func TestWaitForCI_LegacyErrorExitsAsFailure(t *testing.T) {
 		{pr: openPR("sha"), status: &github.CombinedStatus{State: "error", TotalCount: 1, Statuses: []github.CommitStatus{{Context: "ci/jenkins", State: "error"}}}},
 	}}
 
-	result, err := waitForCI(context.Background(), client, "o", "r", 1, time.Second, &bytes.Buffer{})
+	result, err := waitForCI(context.Background(), client, forge.Ref{Owner: "o", Repo: "r", Number: 1}, time.Second, &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +218,7 @@ func TestWaitForCI_MergedWhileWaiting(t *testing.T) {
 		{pr: merged},
 	}}
 
-	result, err := waitForCI(context.Background(), client, "o", "r", 1, time.Second, &bytes.Buffer{})
+	result, err := waitForCI(context.Background(), client, forge.Ref{Owner: "o", Repo: "r", Number: 1}, time.Second, &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,7 +236,7 @@ func TestWaitForCI_ClosedWithoutMerge(t *testing.T) {
 	closed.State = "closed"
 	client := &scriptedClient{steps: []pollStep{{pr: closed}}}
 
-	result, err := waitForCI(context.Background(), client, "o", "r", 1, time.Second, &bytes.Buffer{})
+	result, err := waitForCI(context.Background(), client, forge.Ref{Owner: "o", Repo: "r", Number: 1}, time.Second, &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +252,7 @@ func TestWaitForCI_FollowsNewHeadCommit(t *testing.T) {
 		{pr: openPR("new1111"), runs: []github.CheckRun{run("Test", "completed", "success")}},
 	}}
 
-	result, err := waitForCI(context.Background(), client, "o", "r", 1, time.Second, &bytes.Buffer{})
+	result, err := waitForCI(context.Background(), client, forge.Ref{Owner: "o", Repo: "r", Number: 1}, time.Second, &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,7 +270,7 @@ func TestWaitForCI_Timeout(t *testing.T) {
 	defer cancel()
 	client := &scriptedClient{steps: []pollStep{{pr: openPR("sha"), runs: []github.CheckRun{run("Test", "in_progress", "")}}}}
 
-	result, err := waitForCI(ctx, client, "o", "r", 1, time.Hour, &bytes.Buffer{})
+	result, err := waitForCI(ctx, client, forge.Ref{Owner: "o", Repo: "r", Number: 1}, time.Hour, &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +289,7 @@ func TestWaitForCI_Interrupted(t *testing.T) {
 	defer func() { sleepFunc = old }()
 	client := &scriptedClient{steps: []pollStep{{pr: openPR("sha"), runs: []github.CheckRun{run("Test", "queued", "")}}}}
 
-	result, err := waitForCI(ctx, client, "o", "r", 1, time.Hour, &bytes.Buffer{})
+	result, err := waitForCI(ctx, client, forge.Ref{Owner: "o", Repo: "r", Number: 1}, time.Hour, &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -306,7 +307,7 @@ func TestWaitForCI_RetriesTransientErrors(t *testing.T) {
 	}}
 	var progress bytes.Buffer
 
-	result, err := waitForCI(context.Background(), client, "o", "r", 1, time.Second, &progress)
+	result, err := waitForCI(context.Background(), client, forge.Ref{Owner: "o", Repo: "r", Number: 1}, time.Second, &progress)
 	if err != nil {
 		t.Fatalf("transient errors should be retried, got %v", err)
 	}
@@ -332,7 +333,7 @@ func TestWaitForCI_WaitsForRateLimitResetWithoutGivingUp(t *testing.T) {
 	}}
 	var progress bytes.Buffer
 
-	result, err := waitForCI(context.Background(), client, "o", "r", 1, 15*time.Second, &progress)
+	result, err := waitForCI(context.Background(), client, forge.Ref{Owner: "o", Repo: "r", Number: 1}, 15*time.Second, &progress)
 	if err != nil {
 		t.Fatalf("rate limits must not count as errors, got %v", err)
 	}
@@ -357,7 +358,7 @@ func TestWaitForCI_RateLimitWithoutResetUsesInterval(t *testing.T) {
 		{prErr: &github.APIError{StatusCode: 429, RateLimited: true}},
 		{pr: openPR("sha"), runs: []github.CheckRun{run("Test", "completed", "success")}},
 	}}
-	if _, err := waitForCI(context.Background(), client, "o", "r", 1, 15*time.Second, &bytes.Buffer{}); err != nil {
+	if _, err := waitForCI(context.Background(), client, forge.Ref{Owner: "o", Repo: "r", Number: 1}, 15*time.Second, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
 	if len(delays) != 1 || delays[0] != 15*time.Second {
@@ -369,7 +370,7 @@ func TestWaitForCI_GivesUpAfterConsecutiveTransientErrors(t *testing.T) {
 	noSleep(t)
 	client := &scriptedClient{steps: []pollStep{{prErr: errors.New("no route to host")}}}
 
-	_, err := waitForCI(context.Background(), client, "o", "r", 1, time.Second, &bytes.Buffer{})
+	_, err := waitForCI(context.Background(), client, forge.Ref{Owner: "o", Repo: "r", Number: 1}, time.Second, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "3 consecutive errors") {
 		t.Errorf("expected to give up after 3 errors, got %v", err)
 	}
@@ -388,7 +389,7 @@ func TestWaitForCI_PermanentErrorsAreNotRetried(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			noSleep(t)
 			client := &scriptedClient{steps: []pollStep{tt.step}}
-			if _, err := waitForCI(context.Background(), client, "o", "r", 1, time.Second, &bytes.Buffer{}); err == nil {
+			if _, err := waitForCI(context.Background(), client, forge.Ref{Owner: "o", Repo: "r", Number: 1}, time.Second, &bytes.Buffer{}); err == nil {
 				t.Fatal("expected an error")
 			}
 			if client.polls != 1 {

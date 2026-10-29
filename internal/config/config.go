@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/devblac/prw/internal/forge"
 )
 
 const (
@@ -25,8 +27,13 @@ type Config struct {
 	WebhookURL          string `json:"webhook_url,omitempty"`
 	WebhookFormat       string `json:"webhook_format,omitempty"`
 	GitHubToken         string `json:"github_token,omitempty"`
-	NotificationFilter  string `json:"notification_filter,omitempty"`
-	NotificationNative  bool   `json:"notification_native,omitempty"`
+	// BitbucketToken and BitbucketEmail authenticate against Bitbucket Cloud: an
+	// Atlassian API token with the account's email (Basic auth), or a workspace /
+	// project / repository access token alone (Bearer). See ResolveBitbucketAuth.
+	BitbucketToken     string `json:"bitbucket_token,omitempty"`
+	BitbucketEmail     string `json:"bitbucket_email,omitempty"`
+	NotificationFilter string `json:"notification_filter,omitempty"`
+	NotificationNative bool   `json:"notification_native,omitempty"`
 	// DisablePREvents turns off review (approved / changes requested) and merge
 	// (conflict / ready to merge) notifications; `pr_events` in `prw config`.
 	DisablePREvents bool `json:"disable_pr_events,omitempty"`
@@ -97,9 +104,12 @@ func (c *Config) DisableAutoWatch(source string) (wasOn bool, removed []WatchedP
 
 // WatchedPR represents a pull request being watched.
 type WatchedPR struct {
-	Owner          string    `json:"owner"`
-	Repo           string    `json:"repo"`
-	Number         int       `json:"number"`
+	Owner  string `json:"owner"`
+	Repo   string `json:"repo"`
+	Number int    `json:"number"`
+	// Host is where the PR lives: empty for GitHub, "bitbucket.org" for Bitbucket
+	// Cloud (see forge.StorageHost).
+	Host           string    `json:"host,omitempty"`
 	LastKnownSHA   string    `json:"last_known_sha,omitempty"`
 	LastKnownState string    `json:"last_known_state,omitempty"`
 	LastChecked    time.Time `json:"last_checked,omitempty"`
@@ -283,7 +293,7 @@ func acquireLock(configPath string) (release func(), err error) {
 func (c *Config) ApplyPRState(pr WatchedPR) bool {
 	for i := range c.WatchedPRs {
 		w := &c.WatchedPRs[i]
-		if samePR(*w, pr.Owner, pr.Repo, pr.Number) {
+		if samePR(*w, pr.Host, pr.Owner, pr.Repo, pr.Number) {
 			w.LastKnownSHA = pr.LastKnownSHA
 			w.LastKnownState = pr.LastKnownState
 			w.LastChecked = pr.LastChecked
@@ -323,7 +333,7 @@ func RemovePRs(prs []WatchedPR) error {
 	return Update(func(c *Config) error {
 		changed := false
 		for _, pr := range prs {
-			if c.RemovePR(pr.Owner, pr.Repo, pr.Number) {
+			if c.RemovePR(pr.Host, pr.Owner, pr.Repo, pr.Number) {
 				changed = true
 			}
 		}
@@ -334,17 +344,19 @@ func RemovePRs(prs []WatchedPR) error {
 	})
 }
 
-// samePR reports whether pr is owner/repo#number. GitHub owner and repository names
-// are case-insensitive, so "DevBlac/PRW" and "devblac/prw" are the same repository.
-func samePR(pr WatchedPR, owner, repo string, number int) bool {
-	return pr.Number == number && strings.EqualFold(pr.Owner, owner) && strings.EqualFold(pr.Repo, repo)
+// samePR reports whether pr is owner/repo#number on host. Owner and repository names
+// are case-insensitive on GitHub and Bitbucket, so "DevBlac/PRW" and "devblac/prw" are
+// the same repository. An empty host means GitHub.
+func samePR(pr WatchedPR, host, owner, repo string, number int) bool {
+	return pr.Number == number && forge.NormalizeHost(pr.Host) == forge.NormalizeHost(host) &&
+		strings.EqualFold(pr.Owner, owner) && strings.EqualFold(pr.Repo, repo)
 }
 
 // MarkManual clears the auto-watch Source of a watched PR, so that disabling that
 // auto-watch source no longer removes it. It reports whether anything changed.
-func (c *Config) MarkManual(owner, repo string, number int) bool {
+func (c *Config) MarkManual(host, owner, repo string, number int) bool {
 	for i := range c.WatchedPRs {
-		if samePR(c.WatchedPRs[i], owner, repo, number) && c.WatchedPRs[i].Source != "" {
+		if samePR(c.WatchedPRs[i], host, owner, repo, number) && c.WatchedPRs[i].Source != "" {
 			c.WatchedPRs[i].Source = ""
 			return true
 		}
@@ -355,7 +367,7 @@ func (c *Config) MarkManual(owner, repo string, number int) bool {
 // AddPR adds a PR to the watched list if not already present.
 func (c *Config) AddPR(pr WatchedPR) bool {
 	for _, existing := range c.WatchedPRs {
-		if samePR(existing, pr.Owner, pr.Repo, pr.Number) {
+		if samePR(existing, pr.Host, pr.Owner, pr.Repo, pr.Number) {
 			return false
 		}
 	}
@@ -364,9 +376,9 @@ func (c *Config) AddPR(pr WatchedPR) bool {
 }
 
 // RemovePR removes a PR from the watched list.
-func (c *Config) RemovePR(owner, repo string, number int) bool {
+func (c *Config) RemovePR(host, owner, repo string, number int) bool {
 	for i, pr := range c.WatchedPRs {
-		if samePR(pr, owner, repo, number) {
+		if samePR(pr, host, owner, repo, number) {
 			c.WatchedPRs = append(c.WatchedPRs[:i], c.WatchedPRs[i+1:]...)
 			return true
 		}
@@ -374,10 +386,10 @@ func (c *Config) RemovePR(owner, repo string, number int) bool {
 	return false
 }
 
-// UpdatePR updates the state of a watched PR.
+// UpdatePR updates the state of a watched GitHub PR.
 func (c *Config) UpdatePR(owner, repo string, number int, sha, state string) {
 	for i := range c.WatchedPRs {
-		if samePR(c.WatchedPRs[i], owner, repo, number) {
+		if samePR(c.WatchedPRs[i], forge.GitHub, owner, repo, number) {
 			c.WatchedPRs[i].LastKnownSHA = sha
 			c.WatchedPRs[i].LastKnownState = state
 			c.WatchedPRs[i].LastChecked = time.Now()
@@ -439,6 +451,31 @@ func (c *Config) ResolveToken() (token, source string) {
 func (c *Config) GetToken() string {
 	token, _ := c.ResolveToken()
 	return token
+}
+
+// BitbucketAuth is how to authenticate against Bitbucket Cloud. With an Email, Token
+// is an Atlassian API token used with Basic auth; without one, Token is an access
+// token sent as Bearer. A zero BitbucketAuth means anonymous (public repositories).
+type BitbucketAuth struct {
+	Email string
+	Token string
+}
+
+// ResolveBitbucketAuth returns the Bitbucket credentials and where they came from:
+// the config file (bitbucket_token / bitbucket_email) or the BITBUCKET_TOKEN /
+// BITBUCKET_EMAIL environment variables.
+func (c *Config) ResolveBitbucketAuth() (BitbucketAuth, string) {
+	if c.BitbucketToken != "" {
+		return BitbucketAuth{Email: c.BitbucketEmail, Token: c.BitbucketToken}, TokenSourceConfig
+	}
+	if t := os.Getenv("BITBUCKET_TOKEN"); t != "" {
+		email := os.Getenv("BITBUCKET_EMAIL")
+		if email == "" {
+			email = c.BitbucketEmail
+		}
+		return BitbucketAuth{Email: email, Token: t}, "environment variable (BITBUCKET_TOKEN)"
+	}
+	return BitbucketAuth{}, TokenSourceNone
 }
 
 // normalizeNotificationFilter applies defaults and validation for the notification filter.

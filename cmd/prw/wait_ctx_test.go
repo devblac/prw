@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/devblac/prw/internal/forge"
 	"github.com/devblac/prw/internal/github"
 )
 
@@ -22,7 +23,7 @@ func TestWaitForCI_FollowsPushThatLandsDuringThePoll(t *testing.T) {
 		{pr: openPR("new"), runs: []github.CheckRun{run("Test", "completed", "failure")}},
 	}}
 
-	result, err := waitForCI(context.Background(), client, "o", "r", 1, time.Second, &bytes.Buffer{})
+	result, err := waitForCI(context.Background(), client, forge.Ref{Owner: "o", Repo: "r", Number: 1}, time.Second, &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +36,7 @@ func TestWaitForCI_ConfirmsHeadBeforeReturning(t *testing.T) {
 	noSleep(t)
 	client := &scriptedClient{steps: []pollStep{{pr: openPR("sha"), runs: []github.CheckRun{run("Test", "completed", "success")}}}}
 
-	result, err := waitForCI(context.Background(), client, "o", "r", 1, time.Second, &bytes.Buffer{})
+	result, err := waitForCI(context.Background(), client, forge.Ref{Owner: "o", Repo: "r", Number: 1}, time.Second, &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +56,7 @@ func TestWaitForCI_RetriesWhenTheHeadCheckFails(t *testing.T) {
 		{pr: openPR("new"), runs: []github.CheckRun{run("Test", "completed", "failure")}},
 	}}
 
-	result, err := waitForCI(context.Background(), client, "o", "r", 1, time.Second, &bytes.Buffer{})
+	result, err := waitForCI(context.Background(), client, forge.Ref{Owner: "o", Repo: "r", Number: 1}, time.Second, &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +74,7 @@ func TestWaitForCI_InterruptDuringTheHeadCheck(t *testing.T) {
 		revalidate: func() error { cancel(); return ctx.Err() }, // Ctrl-C while it's in flight
 	}}}
 
-	result, err := waitForCI(ctx, client, "o", "r", 1, time.Second, &bytes.Buffer{})
+	result, err := waitForCI(ctx, client, forge.Ref{Owner: "o", Repo: "r", Number: 1}, time.Second, &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +105,7 @@ func TestWaitForCI_TimeoutCancelsTheRequestInFlight(t *testing.T) {
 	defer cancel()
 
 	start := time.Now()
-	result, err := waitForCI(ctx, hangingClient(t), "o", "r", 1, time.Second, &bytes.Buffer{})
+	result, err := waitForCI(ctx, hangingClient(t), forge.Ref{Owner: "o", Repo: "r", Number: 1}, time.Second, &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +123,7 @@ func TestWaitForCI_InterruptCancelsTheRequestInFlight(t *testing.T) {
 	time.AfterFunc(100*time.Millisecond, cancel) // Ctrl-C
 
 	start := time.Now()
-	result, err := waitForCI(ctx, hangingClient(t), "o", "r", 1, time.Second, &bytes.Buffer{})
+	result, err := waitForCI(ctx, hangingClient(t), forge.Ref{Owner: "o", Repo: "r", Number: 1}, time.Second, &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
 	}

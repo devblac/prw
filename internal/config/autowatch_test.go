@@ -44,10 +44,10 @@ func TestEnableAndDisableAutoWatch(t *testing.T) {
 
 func TestMarkManual(t *testing.T) {
 	c := &Config{WatchedPRs: []WatchedPR{{Owner: "o", Repo: "r", Number: 1, Source: AutoWatchMine}, {Owner: "o", Repo: "r", Number: 2}}}
-	if !c.MarkManual("O", "R", 1) || c.WatchedPRs[0].Source != "" {
+	if !c.MarkManual("", "O", "R", 1) || c.WatchedPRs[0].Source != "" {
 		t.Errorf("MarkManual should clear the source: %+v", c.WatchedPRs[0])
 	}
-	if c.MarkManual("o", "r", 1) || c.MarkManual("o", "r", 2) || c.MarkManual("o", "r", 99) {
+	if c.MarkManual("", "o", "r", 1) || c.MarkManual("", "o", "r", 2) || c.MarkManual("", "o", "r", 99) {
 		t.Error("MarkManual must report false when nothing changes")
 	}
 }
@@ -61,7 +61,7 @@ func TestPRMatchingIsCaseInsensitive(t *testing.T) {
 	if !c.ApplyPRState(WatchedPR{Owner: "devblac", Repo: "prw", Number: 5, LastKnownState: "success"}) || c.WatchedPRs[0].LastKnownState != "success" {
 		t.Error("ApplyPRState must match case-insensitively")
 	}
-	if !c.RemovePR("DEVBLAC", "prw", 5) || len(c.WatchedPRs) != 0 {
+	if !c.RemovePR("", "DEVBLAC", "prw", 5) || len(c.WatchedPRs) != 0 {
 		t.Error("RemovePR must match case-insensitively")
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/devblac/prw/internal/forge"
 	"github.com/devblac/prw/internal/github"
 )
 
@@ -22,7 +23,7 @@ func TestWaitForCI_NoCIStopsInsteadOfWaitingForTheTimeout(t *testing.T) {
 	noSleep(t)
 	client := &scriptedClient{steps: []pollStep{{pr: staleOpenPR("sha", time.Hour)}}}
 
-	result, err := waitForCI(context.Background(), client, "o", "r", 1, time.Second, &bytes.Buffer{})
+	result, err := waitForCI(context.Background(), client, forge.Ref{Owner: "o", Repo: "r", Number: 1}, time.Second, &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +43,7 @@ func TestWaitForCI_WaitsForCIToRegisterAfterAPush(t *testing.T) {
 		{pr: staleOpenPR("new", 30*time.Second), runs: []github.CheckRun{run("Test", "completed", "success")}},
 	}}
 
-	result, err := waitForCI(context.Background(), client, "o", "r", 1, time.Second, &bytes.Buffer{})
+	result, err := waitForCI(context.Background(), client, forge.Ref{Owner: "o", Repo: "r", Number: 1}, time.Second, &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
 	}

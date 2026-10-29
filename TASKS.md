@@ -97,6 +97,7 @@ Legend — Impact: 1–5 · Effort: S (≤½ day), M (1–2 days), L (3+ days) �
 - ✅ #15 Failed job log excerpt — done (`--logs` on `checks`/`wait`, MCP `get_failed_logs`; parser tested on a real staticcheck failure log; verified live on cloudposse/atmos#3476, #3422 and #2199 — a commit status — and over MCP stdio)
 - ✅ #16 Flakiness detection — done as `prw flaky` + MCP `get_flaky_checks` (failed-then-passed across attempts of the same run; verified live: grafana/grafana 4 flaky jobs in 300 runs, hashicorp/terraform "Unit Tests"; parallel fetching cut grafana from 24s to 9s). The "status history" half was dropped: low value for its cost.
 - 🚀 v0.4.0 released with everything above (PRs #6–#22).
+- 🆕 Bitbucket Cloud support (requested by the owner, who uses Bitbucket at work). Phase 1 done: PR identity carries the host; a Bitbucket client maps PRs, build statuses (Pipelines, Jenkins), participants and merge checks onto the existing types, so run / wait / checks / list / broadcast / MCP work unchanged; per-host rate-limit pauses; ≥60s between checks of a Bitbucket PR (1,000 req/h limit). Verified live on public atlassian/atlassian-connect-express PRs. Next: auto-watch (`--mine` / `--review-requested`) on Bitbucket, Pipelines step logs for `--logs`, then GitHub Enterprise (#2) on the same host abstraction.
 - Next: #17 packaging (Homebrew/Scoop) + keychain token storage, #8 `gh` extension publishing — both need owner decisions
 
 ## Planned

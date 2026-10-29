@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/devblac/prw/internal/config"
+	"github.com/devblac/prw/internal/forge"
 	"github.com/devblac/prw/internal/github"
 )
 
@@ -42,7 +43,7 @@ func TestCheckAllPRs_StopsAndPausesOnRateLimit(t *testing.T) {
 	if client.calls != 1 {
 		t.Errorf("must stop after the first rate-limited request, made %d", client.calls)
 	}
-	if !w.pausedUntil.Equal(reset) {
+	if !w.pausedUntil[forge.GitHub].Equal(reset) {
 		t.Errorf("pausedUntil = %v, want %v", w.pausedUntil, reset)
 	}
 	if len(w.config.WatchedPRs) != 3 {
@@ -60,8 +61,8 @@ func TestPauseForRateLimit_DefaultsWhenResetUnknown(t *testing.T) {
 	w := New(&mockGitHubClient{}, &config.Config{}, &mockNotifier{})
 	w.now = func() time.Time { return now }
 
-	w.pauseForRateLimit(time.Time{})
-	if !w.pausedUntil.Equal(now.Add(defaultRateLimitPause)) {
+	w.pauseForRateLimit("", time.Time{})
+	if !w.pausedUntil[forge.GitHub].Equal(now.Add(defaultRateLimitPause)) {
 		t.Errorf("pausedUntil = %v, want now+%s", w.pausedUntil, defaultRateLimitPause)
 	}
 }
@@ -100,7 +101,7 @@ func TestCheckAllPRs_OtherErrorsDoNotPause(t *testing.T) {
 	if client.calls != 2 {
 		t.Errorf("a non-rate-limit error must not stop the round, made %d calls", client.calls)
 	}
-	if !w.pausedUntil.IsZero() {
+	if len(w.pausedUntil) != 0 {
 		t.Errorf("must not pause on a 404, pausedUntil = %v", w.pausedUntil)
 	}
 }

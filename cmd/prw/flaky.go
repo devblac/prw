@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -88,6 +89,9 @@ var (
 
 // parseRepoArg accepts "owner/repo", a repository URL or a PR URL.
 func parseRepoArg(arg string) (owner, repo string, err error) {
+	if strings.Contains(strings.ToLower(arg), "bitbucket.org") {
+		return "", "", fmt.Errorf("flaky checks are only found for GitHub Actions so far, not Bitbucket")
+	}
 	if m := repoSlug.FindStringSubmatch(arg); m != nil {
 		return m[1], m[2], nil
 	}

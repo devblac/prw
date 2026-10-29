@@ -265,7 +265,7 @@ func TestSavePRStates_PreservesConcurrentChanges(t *testing.T) {
 
 	// Meanwhile, other commands remove #2, add #3 and change a setting.
 	if err := Update(func(c *Config) error {
-		c.RemovePR("owner", "repo", 2)
+		c.RemovePR("", "owner", "repo", 2)
 		c.AddPR(pr(3))
 		c.WebhookURL = "https://hooks.example.com/x"
 		return nil

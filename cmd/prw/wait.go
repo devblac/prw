@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/devblac/prw/internal/config"
+	"github.com/devblac/prw/internal/forge"
 	"github.com/devblac/prw/internal/github"
 )
 
@@ -106,10 +107,11 @@ GitHub Actions job (failed_logs in --json).`,
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
-		owner, repo, number, err := github.ParsePRURL(args[0])
+		ref, err := forge.ParsePRURL(args[0])
 		if err != nil {
 			return waitErrorf(exitWaitError, "invalid PR URL: %v", err)
 		}
+		owner, repo := ref.Owner, ref.Repo
 		if waitInterval <= 0 {
 			return waitErrorf(exitWaitError, "--interval must be positive")
 		}
@@ -121,9 +123,9 @@ GitHub Actions job (failed_logs in --json).`,
 		if err != nil {
 			return waitErrorf(exitWaitError, "failed to load config: %v", err)
 		}
-		token := cfg.GetToken()
-		if token == "" {
-			return &exitError{code: exitWaitError, err: errMissingToken}
+		client, err := clientFor(cfg, ref.Host)
+		if err != nil {
+			return &exitError{code: exitWaitError, err: err}
 		}
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -143,10 +145,9 @@ GitHub Actions job (failed_logs in --json).`,
 			}
 		}()
 
-		client := newGitHubClient(token)
-		result, err := waitForCI(ctx, client, owner, repo, number, waitInterval, os.Stderr)
+		result, err := waitForCI(ctx, client, ref, waitInterval, os.Stderr)
 		if err != nil {
-			return &exitError{code: exitWaitError, err: err}
+			return &exitError{code: exitWaitError, err: fmt.Errorf("%w%s", err, bitbucketAuthHint(ref.Host, err))}
 		}
 		if waitLogs && (result.State == "failure" || result.State == "error") {
 			// A fresh context: the wait's may be about to time out.
@@ -169,6 +170,7 @@ GitHub Actions job (failed_logs in --json).`,
 
 // waitResult is the outcome of waitForCI; it is also the --json output.
 type waitResult struct {
+	Host         string               `json:"host,omitempty"` // "bitbucket.org" for Bitbucket; empty for GitHub
 	Owner        string               `json:"owner"`
 	Repo         string               `json:"repo"`
 	Number       int                  `json:"number"`
@@ -220,9 +222,10 @@ type ciClient interface {
 
 // waitForCI polls until the PR's CI finishes, the PR is merged or closed, or ctx is
 // done (timeout or interrupt). It only returns an error for non-transient failures.
-func waitForCI(ctx context.Context, client ciClient, owner, repo string, number int, interval time.Duration, progress io.Writer) (*waitResult, error) {
+func waitForCI(ctx context.Context, client ciClient, ref forge.Ref, interval time.Duration, progress io.Writer) (*waitResult, error) {
+	owner, repo, number := ref.Owner, ref.Repo, ref.Number
 	start := time.Now()
-	result := &waitResult{Owner: owner, Repo: repo, Number: number, URL: github.FormatPRURL(owner, repo, number), State: "pending"}
+	result := &waitResult{Host: forge.StorageHost(ref.Host), Owner: owner, Repo: repo, Number: number, URL: ref.URL(), State: "pending"}
 	finish := func() *waitResult {
 		result.ElapsedSeconds = time.Since(start).Seconds()
 		return result

@@ -52,7 +52,7 @@ func TestWatcherReloadsWatchListEachTick(t *testing.T) {
 
 	// In another terminal: `prw unwatch` #1 and `prw watch` #2.
 	if err := config.Update(func(c *config.Config) error {
-		c.RemovePR("owner", "repo", 1)
+		c.RemovePR("", "owner", "repo", 1)
 		c.AddPR(watched(2, ""))
 		return nil
 	}); err != nil {
@@ -101,7 +101,7 @@ func TestWatcherDoesNotResurrectUnwatchedPR(t *testing.T) {
 
 	// The user unwatches #2 while a poll is in flight (after the watcher's last reload).
 	if err := config.Update(func(c *config.Config) error {
-		c.RemovePR("owner", "repo", 2)
+		c.RemovePR("", "owner", "repo", 2)
 		return nil
 	}); err != nil {
 		t.Fatal(err)

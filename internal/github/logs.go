@@ -230,7 +230,7 @@ func FailedJobLogs(ctx context.Context, c LogFetcher, owner, repo string, runs [
 		entry := FailedJobLog{Name: run.Name, URL: run.HTMLURL}
 		switch {
 		case !IsActionsJob(run):
-			entry.Error = "not a GitHub Actions job; its log isn't available through the API"
+			entry.Error = "not a GitHub Actions job; prw only reads GitHub Actions logs so far"
 		case fetched >= maxLogFetches:
 			entry.Error = fmt.Sprintf("skipped: only the first %d failed jobs' logs are fetched", maxLogFetches)
 		default:

@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/devblac/prw/internal/config"
+	"github.com/devblac/prw/internal/forge"
 	"github.com/devblac/prw/internal/github"
 )
 
@@ -72,7 +73,7 @@ Exit codes:
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
-		owner, repo, number, err := github.ParsePRURL(args[0])
+		ref, err := forge.ParsePRURL(args[0])
 		if err != nil {
 			return waitErrorf(exitWaitError, "invalid PR URL: %v", err)
 		}
@@ -80,16 +81,16 @@ Exit codes:
 		if err != nil {
 			return waitErrorf(exitWaitError, "failed to load config: %v", err)
 		}
-		token := cfg.GetToken()
-		if token == "" {
-			return &exitError{code: exitWaitError, err: errMissingToken}
-		}
-
-		ctx := context.Background()
-		client := newGitHubClient(token)
-		report, err := fetchChecks(ctx, client, owner, repo, number, time.Now())
+		client, err := clientFor(cfg, ref.Host)
 		if err != nil {
 			return &exitError{code: exitWaitError, err: err}
+		}
+		owner, repo := ref.Owner, ref.Repo
+
+		ctx := context.Background()
+		report, err := fetchChecks(ctx, client, ref, time.Now())
+		if err != nil {
+			return &exitError{code: exitWaitError, err: fmt.Errorf("%w%s", err, bitbucketAuthHint(ref.Host, err))}
 		}
 		if checksLogs {
 			report.Logs, err = fetchFailedLogs(ctx, client, owner, repo, report.SHA, checksLogLines)
@@ -124,6 +125,7 @@ type checkEntry struct {
 
 // checksReport is the output of `prw checks`.
 type checksReport struct {
+	Host       string       `json:"host,omitempty"`
 	Owner      string       `json:"owner"`
 	Repo       string       `json:"repo"`
 	Number     int          `json:"number"`
@@ -139,7 +141,8 @@ type checksReport struct {
 
 // fetchChecks gets the head commit's check runs and statuses. Superseded runs of the
 // same check are left out, as they don't count towards the result.
-func fetchChecks(ctx context.Context, client ciClient, owner, repo string, number int, now time.Time) (*checksReport, error) {
+func fetchChecks(ctx context.Context, client ciClient, ref forge.Ref, now time.Time) (*checksReport, error) {
+	owner, repo, number := ref.Owner, ref.Repo, ref.Number
 	pr, err := client.GetPullRequest(ctx, owner, repo, number)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch PR: %w", err)
@@ -158,7 +161,7 @@ func fetchChecks(ctx context.Context, client ciClient, owner, repo string, numbe
 	github.ApplyNoCI(ci, pr.UpdatedAt, now)
 	report := &checksReport{
 		Owner: owner, Repo: repo, Number: number, Title: pr.Title, SHA: sha,
-		URL: github.FormatPRURL(owner, repo, number), State: ci.State, MergeState: github.MergeStatus(pr),
+		URL: ref.URL(), Host: forge.StorageHost(ref.Host), State: ci.State, MergeState: github.MergeStatus(pr),
 		Checks: []checkEntry{},
 	}
 	if pr.IsClosed() {

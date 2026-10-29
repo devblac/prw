@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/devblac/prw/internal/forge"
 	"github.com/devblac/prw/internal/github"
 )
 
@@ -93,6 +94,7 @@ func buildWebhookBody(format string, event *StatusChangeEvent) ([]byte, error) {
 func genericPayload(event *StatusChangeEvent) WebhookPayload {
 	return WebhookPayload{
 		Type:          payloadType(event.Kind),
+		Host:          forge.StorageHost(event.Host),
 		Owner:         event.Owner,
 		Repo:          event.Repo,
 		PRNumber:      event.Number,
@@ -101,7 +103,7 @@ func genericPayload(event *StatusChangeEvent) WebhookPayload {
 		CurrentState:  event.CurrentState,
 		SHA:           event.SHA,
 		FailedChecks:  event.FailedChecks,
-		URL:           github.FormatPRURL(event.Owner, event.Repo, event.Number),
+		URL:           forge.PRURL(event.Host, event.Owner, event.Repo, event.Number),
 		Timestamp:     event.Timestamp,
 	}
 }
@@ -182,7 +184,7 @@ func slackLinkText(s string) string {
 }
 
 func slackPayload(event *StatusChangeEvent) map[string]string {
-	prURL := github.FormatPRURL(event.Owner, event.Repo, event.Number)
+	prURL := forge.PRURL(event.Host, event.Owner, event.Repo, event.Number)
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s *<%s|%s/%s#%d>*", stateEmoji(event.CurrentState), prURL, slackLinkText(event.Owner), slackLinkText(event.Repo), event.Number)
@@ -237,7 +239,7 @@ func discordPayload(event *StatusChangeEvent) map[string]interface{} {
 
 	embed := discordEmbed{
 		Title:       truncate(title, discordTitleLimit),
-		URL:         github.FormatPRURL(event.Owner, event.Repo, event.Number),
+		URL:         forge.PRURL(event.Host, event.Owner, event.Repo, event.Number),
 		Description: truncate(desc.String(), discordDescriptionMax),
 		Color:       stateColor(event.CurrentState),
 	}

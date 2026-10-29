@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Bitbucket Cloud pull requests: `prw watch`, `run`, `wait`, `checks`, `list`, `broadcast` and the MCP tools accept `bitbucket.org/<workspace>/<repo>/pull-requests/<N>` URLs. CI comes from the commit's build statuses (Bitbucket Pipelines, Jenkins, ...), reviews from participants' approvals and change requests, the merge state from the PR's merge checks. Authenticate with an Atlassian API token (`bitbucket_email` + `bitbucket_token`, or `BITBUCKET_EMAIL` / `BITBUCKET_TOKEN`) or an access token alone; public repositories need none. To stay within Bitbucket's 1,000 requests/hour, `prw run` checks each Bitbucket PR at most once a minute, and rate limits pause only the service that hit them. Auto-watch, `--logs` and `prw flaky` are GitHub-only for now.
+
+### Changed
+- `prw config set` no longer echoes token values.
+- Watch-list entries, notifications (`host` in the generic webhook payload), `prw list --json`, `prw wait --json` / `prw checks --json` and MCP results carry the PR's host; GitHub entries keep an empty one, so existing config files are unchanged.
+
 ## [0.4.0] - 2026-10-24
 
 prw now covers the whole PR lifecycle and is built for scripts and AI agents: it detects GitHub Actions results (previously reported as `pending` forever), works with Slack and Discord webhooks, and adds `prw wait`, `prw checks`, `prw flaky`, an MCP server, auto-watching your PRs, review and merge-conflict events, and failed-job log excerpts. It reuses your `gh` login and polls with conditional requests that cost no API quota.

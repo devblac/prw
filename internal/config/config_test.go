@@ -169,7 +169,7 @@ func TestRemovePR(t *testing.T) {
 		},
 	}
 
-	if !cfg.RemovePR("owner", "repo", 1) {
+	if !cfg.RemovePR("", "owner", "repo", 1) {
 		t.Error("expected RemovePR to return true")
 	}
 	if len(cfg.WatchedPRs) != 1 {
@@ -179,7 +179,7 @@ func TestRemovePR(t *testing.T) {
 		t.Errorf("wrong PR remaining: %+v", cfg.WatchedPRs[0])
 	}
 
-	if cfg.RemovePR("owner", "repo", 99) {
+	if cfg.RemovePR("", "owner", "repo", 99) {
 		t.Error("expected RemovePR to return false for non-existent PR")
 	}
 }
@@ -516,7 +516,7 @@ func TestRemovePR_LastItem(t *testing.T) {
 		},
 	}
 
-	if !cfg.RemovePR("owner", "repo", 1) {
+	if !cfg.RemovePR("", "owner", "repo", 1) {
 		t.Error("expected RemovePR to return true")
 	}
 	if len(cfg.WatchedPRs) != 0 {
