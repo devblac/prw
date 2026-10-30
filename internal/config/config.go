@@ -30,10 +30,21 @@ type Config struct {
 	// BitbucketToken and BitbucketEmail authenticate against Bitbucket Cloud: an
 	// Atlassian API token with the account's email (Basic auth), or a workspace /
 	// project / repository access token alone (Bearer). See ResolveBitbucketAuth.
-	BitbucketToken     string `json:"bitbucket_token,omitempty"`
-	BitbucketEmail     string `json:"bitbucket_email,omitempty"`
-	NotificationFilter string `json:"notification_filter,omitempty"`
-	NotificationNative bool   `json:"notification_native,omitempty"`
+	BitbucketToken string `json:"bitbucket_token,omitempty"`
+	BitbucketEmail string `json:"bitbucket_email,omitempty"`
+	// BitbucketWorkspaces limits `prw dashboard` to these workspaces (all of the
+	// token owner's when empty); BitbucketUser is whose PRs it shows (the token
+	// owner when empty), as a UUID or account id.
+	BitbucketWorkspaces []string `json:"bitbucket_workspaces,omitempty"`
+	BitbucketUser       string   `json:"bitbucket_user,omitempty"`
+
+	// Dashboard settings: GroupBy (auto, issue, branch, title, none), IssuePattern
+	// (a regexp for issue keys) and BranchOrder (target branches in promotion order).
+	GroupBy            string   `json:"group_by,omitempty"`
+	IssuePattern       string   `json:"issue_pattern,omitempty"`
+	BranchOrder        []string `json:"branch_order,omitempty"`
+	NotificationFilter string   `json:"notification_filter,omitempty"`
+	NotificationNative bool     `json:"notification_native,omitempty"`
 	// DisablePREvents turns off review (approved / changes requested) and merge
 	// (conflict / ready to merge) notifications; `pr_events` in `prw config`.
 	DisablePREvents bool `json:"disable_pr_events,omitempty"`

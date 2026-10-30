@@ -84,6 +84,9 @@ func NewClient(email, token string) *Client {
 // SetBaseURL points the client at another server (tests).
 func (c *Client) SetBaseURL(base string) { c.http.BaseURL = strings.TrimRight(base, "/") }
 
+// RequestsInLastHour is how many requests the client sent in the last hour.
+func (c *Client) RequestsInLastHour() int { return c.http.RequestsInLastHour() }
+
 // RateLimit returns the quota reported by the most recent response, if any.
 func (c *Client) RateLimit() github.RateLimit { return c.http.RateLimit() }
 
@@ -96,7 +99,18 @@ type pullRequest struct {
 		Commit struct {
 			Hash string `json:"hash"`
 		} `json:"commit"`
+		Branch struct {
+			Name string `json:"name"`
+		} `json:"branch"`
 	} `json:"source"`
+	Destination struct {
+		Branch struct {
+			Name string `json:"name"`
+		} `json:"branch"`
+		Repository struct {
+			FullName string `json:"full_name"`
+		} `json:"repository"`
+	} `json:"destination"`
 	Participants []struct {
 		User struct {
 			UUID        string `json:"uuid"`
@@ -136,6 +150,8 @@ func (c *Client) GetPullRequest(ctx context.Context, workspace, repo string, num
 	}
 	pr := &github.PullRequest{Number: bb.ID, Title: bb.Title, UpdatedAt: bb.UpdatedOn}
 	pr.Head.SHA = bb.Source.Commit.Hash
+	pr.Head.Ref = bb.Source.Branch.Name
+	pr.Base.Ref = bb.Destination.Branch.Name
 	switch strings.ToUpper(bb.State) {
 	case "OPEN":
 		pr.State = "open"
