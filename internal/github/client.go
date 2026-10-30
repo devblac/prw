@@ -41,6 +41,35 @@ type Client struct {
 	mu        sync.Mutex
 	cache     map[string]cachedResponse
 	rateLimit RateLimit
+	// sent holds when recent requests were made, for RequestsInLastHour.
+	sent []time.Time
+}
+
+// RequestsInLastHour is how many requests this client sent in the last hour
+// (conditional ones included), to show how much of an hourly quota is used.
+func (c *Client) RequestsInLastHour() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.trimSent(time.Now())
+	return len(c.sent)
+}
+
+// countRequest records a request; c.mu must not be held.
+func (c *Client) countRequest() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	now := time.Now()
+	c.trimSent(now)
+	c.sent = append(c.sent, now)
+}
+
+func (c *Client) trimSent(now time.Time) {
+	cutoff := now.Add(-time.Hour)
+	i := 0
+	for i < len(c.sent) && c.sent[i].Before(cutoff) {
+		i++
+	}
+	c.sent = c.sent[i:]
 }
 
 type cachedResponse struct {
@@ -122,7 +151,11 @@ type PullRequest struct {
 	Merged bool   `json:"merged"`
 	Head   struct {
 		SHA string `json:"sha"`
+		Ref string `json:"ref"` // source branch
 	} `json:"head"`
+	Base struct {
+		Ref string `json:"ref"` // target branch
+	} `json:"base"`
 	// UpdatedAt changes on every push (and on comments, labels, ...), so it is an
 	// upper bound for how recently the head commit was pushed.
 	UpdatedAt time.Time `json:"updated_at"`
@@ -507,6 +540,7 @@ func (c *Client) getJSON(ctx context.Context, path string, v interface{}) error 
 		req.Header.Set("If-None-Match", cached.etag)
 	}
 
+	c.countRequest()
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)

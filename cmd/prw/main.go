@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/devblac/prw/internal/config"
+	"github.com/devblac/prw/internal/dashboard"
 	"github.com/devblac/prw/internal/forge"
 	"github.com/devblac/prw/internal/github"
 	"github.com/devblac/prw/internal/notify"
@@ -530,6 +531,11 @@ Supported keys:
   - github_token: GitHub personal access token
   - bitbucket_token: Bitbucket Cloud API token (with bitbucket_email), or an access token alone
   - bitbucket_email: the Atlassian account email that goes with an API token
+  - bitbucket_workspaces: workspaces 'prw dashboard' looks in, comma-separated (default: all of yours)
+  - bitbucket_user: whose Bitbucket PRs 'prw dashboard' shows, UUID or account id (default: the token's owner)
+  - group_by: how 'prw dashboard' groups PRs into tasks: auto, issue, branch, title or none (default: auto)
+  - issue_pattern: regexp for issue keys in branches and titles (default: [A-Z][A-Z0-9]{1,9}-[0-9]+)
+  - branch_order: target branches in promotion order, comma-separated, e.g. dev,qa,main
   - notification_filter: change, fail, or success
   - notification_native: enable native OS notifications (true/false)
   - pr_events: notify about reviews and merge conflicts / readiness, not just CI (true/false, default: true)`,
@@ -575,6 +581,22 @@ func applyConfigSet(cfg *config.Config, key, value string) error {
 		cfg.BitbucketToken = value
 	case "bitbucket_email":
 		cfg.BitbucketEmail = value
+	case "bitbucket_workspaces":
+		cfg.BitbucketWorkspaces = splitList(value)
+	case "bitbucket_user":
+		cfg.BitbucketUser = strings.TrimSpace(value)
+	case "group_by":
+		if !dashboard.ValidGroupBy(value) {
+			return fmt.Errorf("group_by must be one of: auto, issue, branch, title, none")
+		}
+		cfg.GroupBy = value
+	case "issue_pattern":
+		if _, err := dashboard.NewGrouper(dashboard.GroupAuto, value); err != nil {
+			return err
+		}
+		cfg.IssuePattern = value
+	case "branch_order":
+		cfg.BranchOrder = splitList(value)
 	case "notification_filter":
 		filter := config.NormalizeNotificationFilter(value)
 		if !config.IsValidNotificationFilter(filter) {
@@ -631,6 +653,16 @@ func applyConfigUnset(cfg *config.Config, key string) error {
 		cfg.BitbucketToken = ""
 	case "bitbucket_email":
 		cfg.BitbucketEmail = ""
+	case "bitbucket_workspaces":
+		cfg.BitbucketWorkspaces = nil
+	case "bitbucket_user":
+		cfg.BitbucketUser = ""
+	case "group_by":
+		cfg.GroupBy = ""
+	case "issue_pattern":
+		cfg.IssuePattern = ""
+	case "branch_order":
+		cfg.BranchOrder = nil
 	case "notification_filter":
 		cfg.NotificationFilter = config.NotificationFilterChange
 	case "notification_native":

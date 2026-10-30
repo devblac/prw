@@ -31,6 +31,7 @@ The tool is deliberately minimal. It does one thing well: watch PRs and tell you
 
 ## Features
 
+- **`prw dashboard`**: a live table of all your PRs across repositories (GitHub and Bitbucket), grouped by task, one column per target branch — see how far each change and its cherry-picks got
 - **`prw checks`**: every check of a PR with its result, duration and link — and with `--logs`, the output of the step that failed
 - **`prw flaky`**: find a repository's flaky jobs (failed, then passed on re-run of the same commit)
 - **`prw wait`**: block until a PR's CI finishes and exit 0/1/2 — for scripts, pipelines and AI coding agents
@@ -223,6 +224,44 @@ Stop watching a PR:
 
 ```bash
 prw unwatch https://github.com/owner/repo/pull/123
+```
+
+## All your PRs at a glance: `prw dashboard`
+
+`prw dashboard` (alias `prw top`) is a live table of your pull requests across every repository on GitHub and Bitbucket Cloud, refreshed every minute — no need to watch them first, prw finds them.
+
+```
+$ prw dashboard --review --merged
+prw dashboard · 9 open PR(s) · 14:02:11 · every 1m · Ctrl+C to quit
+
+Your PRs (incl. merged in the last 1d) (11)
+TASK       REPO                dev            rc              main|master      UPDATED  TITLE
+PROJ-123   acme/billing-api    #12 🟣 merged  #15 ⏳ 3/5 ✓1    —                12m      Add spending limits
+           acme/web            #7 🟣 merged   #8 ✅ CI ok ✓2   #9 ❌ CI failed  20m      Add spending limits
+PROJ-98    acme/accounts       —              —               #31 ⛔ conflict  12d      Fix login timeout
+
+To review (2)
+TASK       REPO                dev            rc              main|master      UPDATED  TITLE
+PAY-77     acme/payments       #44 🚀 ready   —               —                3h       Retry webhooks
+
+API requests in the last hour: GitHub 48/h · Bitbucket 214/h
+```
+
+- **Rows are tasks**: PRs whose source branch or title share an issue key (`PROJ-123` — Jira, Linear, YouTrack…) share a row, and so do branches that only differ by cherry-pick / backport decorations (`feature/login`, `cherry-pick/feature/login-rc`). A change and its cherry-picks show up together, across repositories.
+- **Columns are target branches in promotion order**: `dev|develop` → `staging|qa|uat` → `rc|release|release/*` → `main|master|prod`, merged by tier so different naming across repositories still lines up. Other targets (e.g. stacked PRs) go in one `other` column that names them.
+- **Cells** show the PR number — a clickable link in most terminals — and its most pressing state: ❌ CI failed, ⛔ conflict, 📝 changes requested, ⏳ CI running (done/total), ✅ CI ok, 🚀 ready to merge, 🟣 merged; `✓N` counts approvals.
+- **Filters**: your PRs by default; `--review` adds PRs where your review is requested, `--merged` your recently merged ones (`--since 24h` by default, e.g. `--since 3d`). `--mine=false` hides yours.
+- `--once` prints once (also when piped), `--json` prints the PRs with their task for scripts.
+
+**Requests stay low**: a PR's CI is only read again when its head changes, while it's running, or every 15 minutes; Bitbucket's merge checks are reused for 30 minutes while a PR is unchanged; PRs to review on Bitbucket (which can only be searched per repository) are rescanned every 10 minutes across repositories active in the last 30 days. Dozens of Bitbucket PRs fit in its 1,000 requests/hour; the footer shows the count.
+
+**Tuning** (all optional):
+
+```bash
+prw config set group_by branch                 # auto (default), issue, branch, title, none
+prw config set issue_pattern '[0-9]+-'         # what an issue key looks like in your branches
+prw config set branch_order dev,qa,uat,main    # your own promotion order
+prw config set bitbucket_workspaces acme,acme-labs  # default: all your workspaces
 ```
 
 ## Waiting for CI in scripts and agents: `prw wait`
