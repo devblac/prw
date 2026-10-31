@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-31
+
+prw now works with Bitbucket Cloud as well as GitHub, and `prw dashboard` shows all your PRs across repositories in one live table, grouped by task, with one column per target branch — handy when a change travels dev → rc → master as cherry-picks.
+
 ### Added
 - `prw dashboard` (alias `prw top`): a live table of your PRs across every repository on GitHub and Bitbucket Cloud, refreshed every minute (`--interval`). It finds them itself (`--review` adds PRs to review, `--merged --since 24h` recently merged ones), groups them by task — the issue key in the branch or title, else the branch without cherry-pick decorations — and shows one column per target branch in promotion order (dev → staging → rc/release → main/master; other targets share an `other` column). Cells show the PR (a clickable link) and its most pressing state: failed CI, conflict, changes requested, running CI, approvals, ready, merged. CI is only re-read when a PR's head changes, while it runs, or every 15 minutes, so dozens of Bitbucket PRs fit in its rate limit; the footer shows requests per hour. `--once`, `--json`; `group_by`, `issue_pattern`, `branch_order`, `bitbucket_workspaces` and `bitbucket_user` config keys.
 - Bitbucket Cloud pull requests: `prw watch`, `run`, `wait`, `checks`, `list`, `broadcast` and the MCP tools accept `bitbucket.org/<workspace>/<repo>/pull-requests/<N>` URLs. CI comes from the commit's build statuses (Bitbucket Pipelines, Jenkins, ...), reviews from participants' approvals and change requests, the merge state from the PR's merge checks. Authenticate with an Atlassian API token (`bitbucket_email` + `bitbucket_token`, or `BITBUCKET_EMAIL` / `BITBUCKET_TOKEN`) or an access token alone; public repositories need none. To stay within Bitbucket's 1,000 requests/hour, `prw run` checks each Bitbucket PR at most once a minute, and rate limits pause only the service that hit them. Auto-watch, `--logs` and `prw flaky` are GitHub-only for now.
@@ -88,7 +92,8 @@ prw now covers the whole PR lifecycle and is built for scripts and AI agents: it
 - Complete documentation: README, CONTRIBUTING, SECURITY, QUICKSTART
 - MIT license
 
-[Unreleased]: https://github.com/devblac/prw/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/devblac/prw/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/devblac/prw/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/devblac/prw/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/devblac/prw/releases/tag/v0.3.0
 [0.2.0]: https://github.com/devblac/prw/releases/tag/v0.2.0
