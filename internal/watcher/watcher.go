@@ -44,6 +44,8 @@ type Watcher struct {
 	now func() time.Time
 	// lastAutoWatch is when the auto-watch searches last ran.
 	lastAutoWatch time.Time
+	// finders are the auto-watch finders of hosts other than GitHub (AddFinder).
+	finders []Finder
 }
 
 const noPRsMessage = "No PRs being watched. Add some with 'prw watch <PR_URL>', or 'prw watch --mine' to follow your open PRs."
@@ -52,9 +54,25 @@ const noPRsMessage = "No PRs being watched. Add some with 'prw watch <PR_URL>', 
 const defaultRateLimitPause = time.Minute
 
 // BitbucketMinInterval is the least time between two checks of a Bitbucket PR,
-// whatever the poll interval: Bitbucket Cloud allows 1,000 requests per hour and a
-// check costs about two, so this keeps ~8 PRs within the limit.
+// whatever the poll interval. Bitbucket Cloud allows 1,000 requests per hour and a
+// check costs up to three, so with more PRs each is checked less often: the checks
+// get bitbucketCheckBudget requests per hour, leaving the rest to auto-watch and other
+// commands.
 const BitbucketMinInterval = time.Minute
+
+const (
+	bitbucketCheckBudget = 600 // requests per hour
+	bitbucketCheckCost   = 3   // PR + merge checks + build statuses
+)
+
+// BitbucketInterval is the least time between two checks of each of n Bitbucket PRs.
+func BitbucketInterval(n int) time.Duration {
+	d := time.Duration(n*bitbucketCheckCost) * time.Hour / bitbucketCheckBudget
+	if d < BitbucketMinInterval {
+		return BitbucketMinInterval
+	}
+	return d
+}
 
 // New creates a new Watcher.
 func New(client GitHubClient, cfg *config.Config, notifier notify.Notifier) *Watcher {
@@ -216,16 +234,26 @@ func (w *Watcher) checkAllPRs(ctx context.Context) {
 }
 
 // due reports whether pr should be checked this round: not while its host is rate
-// limited, and Bitbucket PRs at most every BitbucketMinInterval.
+// limited, and Bitbucket PRs at most every BitbucketInterval.
 func (w *Watcher) due(pr config.WatchedPR) bool {
 	host := forge.NormalizeHost(pr.Host)
 	if w.now().Before(w.pausedUntil[host]) {
 		return false
 	}
-	if host == forge.Bitbucket && !pr.LastChecked.IsZero() && w.now().Sub(pr.LastChecked) < BitbucketMinInterval {
+	if host == forge.Bitbucket && !pr.LastChecked.IsZero() && w.now().Sub(pr.LastChecked) < BitbucketInterval(w.bitbucketPRs()) {
 		return false
 	}
 	return true
+}
+
+func (w *Watcher) bitbucketPRs() int {
+	n := 0
+	for _, pr := range w.config.WatchedPRs {
+		if forge.IsBitbucket(pr.Host) {
+			n++
+		}
+	}
+	return n
 }
 
 func (w *Watcher) pauseForRateLimit(host string, resetAt time.Time) {

@@ -192,7 +192,7 @@ type dashboardView struct {
 }
 
 func (v dashboardView) render(w io.Writer, items []dashboard.Item, warnings, requests []string, now time.Time, live bool) {
-	var mine, review, targets []string
+	var targets []string
 	var mineItems, reviewItems []dashboard.Item
 	for _, it := range items {
 		targets = append(targets, it.Target)
@@ -202,8 +202,6 @@ func (v dashboardView) render(w io.Writer, items []dashboard.Item, warnings, req
 			mineItems = append(mineItems, it)
 		}
 	}
-	_ = mine
-	_ = review
 	cols := dashboard.Columns(targets, v.order)
 
 	open := 0

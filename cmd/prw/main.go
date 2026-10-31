@@ -114,15 +114,20 @@ var watchCmd = &cobra.Command{
 	Short: "Add a PR to the watch list, or follow your PRs automatically",
 	Long: `Add a pull request to the watch list.
 
-With --mine or --review-requested, prw instead follows a GitHub search and keeps
-the watch list up to date by itself: matching PRs are added right away, and
-'prw run' refreshes the search every 5 minutes.
+With --mine or --review-requested, prw instead finds your PRs on GitHub and on
+Bitbucket Cloud (when a Bitbucket token or bitbucket_user is set) and keeps the
+watch list up to date by itself: matching PRs are added right away, and
+'prw run' searches again every 5 minutes.
 
-  --mine              your open PRs (author:@me), in every repository
-  --review-requested  open PRs where your review is requested (incl. your teams)
+  --mine              your open PRs, in every repository (on Bitbucket, in every
+                      workspace, or those in bitbucket_workspaces)
+  --review-requested  open PRs where your review is requested (on GitHub incl.
+                      your teams; on Bitbucket, PRs listing you as a reviewer in
+                      repositories active in the last 30 days, rescanned every
+                      15 minutes)
 
 PRs added by --review-requested are dropped again once your review is no longer
-requested. Merged or closed PRs are always dropped by 'prw run' after it notifies.
+requested (on Bitbucket: once you approve or request changes). Merged or closed PRs are always dropped by 'prw run' after it notifies.
 Undo with 'prw unwatch --mine' / 'prw unwatch --review-requested'.`,
 	Example: `  prw watch https://github.com/owner/repo/pull/123
   prw watch --mine
@@ -204,9 +209,10 @@ func enableAutoWatch(sources []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
-	token := cfg.GetToken()
-	if token == "" {
-		return errMissingToken
+	bbAuth, _ := cfg.ResolveBitbucketAuth()
+	finders := autoWatchFinders(cfg, newBitbucketClient(bbAuth.Email, bbAuth.Token))
+	if len(finders) == 0 {
+		return fmt.Errorf("%w; for Bitbucket, set 'prw config set bitbucket_email' and 'prw config set bitbucket_token'", errMissingToken)
 	}
 
 	var enabled []string
@@ -232,21 +238,21 @@ func enableAutoWatch(sources []string) error {
 	}
 
 	// Run the searches now so the user sees the result immediately.
-	res, err := watcher.SyncAutoWatch(context.Background(), newGitHubClient(token), sources)
+	res, err := watcher.Sync(context.Background(), finders, sources)
 	for _, warning := range res.Warnings {
 		fmt.Printf("Warning: %s\n", warning)
 	}
 	if err != nil {
-		return fmt.Errorf("auto-watch is enabled, but searching GitHub failed (prw run will retry): %w", err)
+		return fmt.Errorf("auto-watch is enabled, but searching failed (prw run will retry): %w", err)
 	}
 	if len(res.Added) == 0 {
 		fmt.Println("No new PRs to add right now.")
 	}
 	for _, pr := range res.Added {
-		fmt.Printf("  + %s/%s#%d - %s\n", pr.Owner, pr.Repo, pr.Number, pr.Title)
+		fmt.Printf("  + %s - %s\n", watcher.DisplayPR(pr), pr.Title)
 	}
 	for _, pr := range res.Removed {
-		fmt.Printf("  - %s/%s#%d (review no longer requested)\n", pr.Owner, pr.Repo, pr.Number)
+		fmt.Printf("  - %s (review no longer requested)\n", watcher.DisplayPR(pr))
 	}
 	fmt.Println("'prw run' keeps this list up to date (searches again every 5 minutes).")
 	return nil
@@ -448,7 +454,11 @@ Press Ctrl+C to stop.`,
 
 		w := watcher.New(client, cfg, notifier)
 		bbAuth, _ := cfg.ResolveBitbucketAuth()
-		w.SetClient(forge.Bitbucket, newBitbucketClient(bbAuth.Email, bbAuth.Token))
+		bb := newBitbucketClient(bbAuth.Email, bbAuth.Token)
+		w.SetClient(forge.Bitbucket, bb)
+		if f := bitbucketFinder(cfg, bb); f != nil {
+			w.AddFinder(f)
+		}
 
 		// Setup signal handling
 		ctx, cancel := context.WithCancel(context.Background())

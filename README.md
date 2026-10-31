@@ -37,7 +37,7 @@ The tool is deliberately minimal. It does one thing well: watch PRs and tell you
 - **`prw wait`**: block until a PR's CI finishes and exit 0/1/2 — for scripts, pipelines and AI coding agents
 - **MCP server** (`prw mcp`): lets Claude Code, Claude Desktop, Cursor and other agents check and wait for PR CI as tools
 - **Bitbucket Cloud**: watch, wait for and list the builds of Bitbucket PRs (Pipelines, Jenkins, ...) with the same commands
-- **Auto-watch**: `prw watch --mine` / `--review-requested` follow your PRs and review requests across all repositories, no URLs needed
+- **Auto-watch**: `prw watch --mine` / `--review-requested` follow your PRs and review requests across all repositories, on GitHub and Bitbucket, no URLs needed
 - **Auto-cleanup**: merged/closed PRs are notified once and dropped from the watch list by `prw run`
 - **Watch multiple PRs** from different repositories simultaneously
 - **Instant notifications** when CI status changes (pending, success, failure, error)
@@ -156,7 +156,7 @@ prw watch --mine               # all your open PRs, in every repository
 prw watch --review-requested   # open PRs where your review is requested (incl. your teams)
 ```
 
-These follow a GitHub search instead of a fixed list: matching PRs are added right away, and `prw run` searches again every 5 minutes, so new PRs show up by themselves. Merged or closed PRs are dropped after their final notification, and review-request PRs are also dropped once your review is no longer requested. `prw list` shows which PRs were added automatically (`ADDED BY`). Undo with `prw unwatch --mine` / `--review-requested`, which removes only the PRs that search added — PRs you watched by hand are kept.
+These follow a search instead of a fixed list, on GitHub and — when a Bitbucket token or `bitbucket_user` is set — on Bitbucket Cloud too (see [Bitbucket Cloud](#bitbucket-cloud)): matching PRs are added right away, and `prw run` searches again every 5 minutes, so new PRs show up by themselves. Merged or closed PRs are dropped after their final notification, and review-request PRs are also dropped once your review is no longer requested. `prw list` shows which PRs were added automatically (`ADDED BY`). Undo with `prw unwatch --mine` / `--review-requested`, which removes only the PRs that search added — PRs you watched by hand are kept.
 
 ### 3. Start the watcher
 
@@ -404,8 +404,9 @@ prw checks https://bitbucket.org/acme/api/pull-requests/42
 - **CI** comes from the commit's build statuses, so it covers Bitbucket Pipelines, Jenkins and anything else that reports to Bitbucket, each with its link and duration. A stopped build counts as failed.
 - **Reviews**: participants who approved or requested changes. **Merge state** comes from the PR's merge checks: `conflict`, `blocked` (e.g. missing approvals or successful builds), or `ready`.
 - `prw run` notifies about Bitbucket PRs just like GitHub ones, `prw list` shows them as `bitbucket:workspace/repo`, and the MCP tools accept their URLs.
-- Bitbucket Cloud allows 1,000 API requests per hour, so `prw run` checks each Bitbucket PR at most once a minute whatever the poll interval (about 8 PRs fit in the limit). A rate limit on one service doesn't pause the other.
-- Not yet for Bitbucket: `--mine` / `--review-requested`, `--logs` and `prw flaky`.
+- **Auto-watch**: `prw watch --mine` follows your open PRs in all your workspaces (or those in `bitbucket_workspaces`). `--review-requested` follows open PRs that list you as a reviewer and that you haven't approved or requested changes on yet; Bitbucket can only search those per repository, so prw scans the repositories active in the last 30 days (up to 60 per workspace) every 15 minutes.
+- Bitbucket Cloud allows 1,000 API requests per hour, so `prw run` spaces out the checks of Bitbucket PRs whatever the poll interval: each is checked at most once a minute, and less often as the list grows (every 18 seconds × the number of Bitbucket PRs, e.g. every 9 minutes with 30), so checks use about 600 requests an hour and leave room for auto-watch and other commands. A rate limit on one service doesn't pause the other.
+- Not yet for Bitbucket: `--logs` and `prw flaky`.
 
 **Authentication.** Public repositories work without credentials. For private ones, create an [Atlassian API token](https://id.atlassian.com/manage-profile/security/api-tokens) with Bitbucket read scopes (repositories and pull requests) and give prw your Atlassian email with it:
 

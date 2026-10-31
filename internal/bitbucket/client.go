@@ -114,6 +114,7 @@ type pullRequest struct {
 	Participants []struct {
 		User struct {
 			UUID        string `json:"uuid"`
+			AccountID   string `json:"account_id"`
 			DisplayName string `json:"display_name"`
 			Nickname    string `json:"nickname"`
 		} `json:"user"`

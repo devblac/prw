@@ -14,7 +14,7 @@ import (
 const prListFields = "next,values.id,values.title,values.state,values.updated_on," +
 	"values.source.branch.name,values.source.commit.hash," +
 	"values.destination.branch.name,values.destination.repository.full_name," +
-	"values.participants.approved,values.participants.state,values.participants.user.uuid"
+	"values.participants.approved,values.participants.state,values.participants.user.uuid,values.participants.user.account_id"
 
 const (
 	listPageLen  = 50
@@ -36,6 +36,9 @@ type ListedPR struct {
 	// participant requested changes.
 	Approvals        int
 	ChangesRequested bool
+	// ReviewedBy holds the UUIDs and account ids of the participants who approved or
+	// requested changes.
+	ReviewedBy []string
 }
 
 func toListed(pr pullRequest) ListedPR {
@@ -52,7 +55,10 @@ func toListed(pr pullRequest) ListedPR {
 			l.ChangesRequested = true
 		case p.Approved:
 			l.Approvals++
+		default:
+			continue
 		}
+		l.ReviewedBy = append(l.ReviewedBy, p.User.UUID, p.User.AccountID)
 	}
 	return l
 }
