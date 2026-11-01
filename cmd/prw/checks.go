@@ -41,7 +41,7 @@ var (
 func init() {
 	rootCmd.AddCommand(checksCmd)
 	checksCmd.Flags().BoolVar(&checksJSON, "json", false, "print the checks as JSON")
-	checksCmd.Flags().BoolVar(&checksLogs, "logs", false, "show the end of the log of each failed GitHub Actions job")
+	checksCmd.Flags().BoolVar(&checksLogs, "logs", false, "show the end of the log of each failed GitHub Actions job or Bitbucket Pipelines build")
 	checksCmd.Flags().IntVar(&checksLogLines, "log-lines", github.DefaultLogLines, "lines of each failed job's log to show with --logs")
 }
 
@@ -53,8 +53,8 @@ commit statuses) of a pull request's head commit: failures first, then running
 ones, then the rest. The PR does not need to be on the watch list.
 
 With --logs, it also prints the output of the step that failed in each failed
-GitHub Actions job (the last --log-lines lines up to the error), so you can see
-why without opening the browser.
+GitHub Actions job or Bitbucket Pipelines build (the last --log-lines lines up to
+the error), so you can see why without opening the browser.
 
 Exit codes:
   0  all checks passed

@@ -50,6 +50,7 @@ func (c *Client) GetJobLog(ctx context.Context, owner, repo string, jobID int64)
 	}
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
 
+	c.countRequest()
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("request failed: %w", err)
@@ -196,6 +197,17 @@ type LogFetcher interface {
 	GetJobLog(ctx context.Context, owner, repo string, jobID int64) (string, error)
 }
 
+// RunLogReader is implemented by clients of hosts whose CI isn't GitHub Actions
+// (Bitbucket Pipelines): FailedJobLogs then asks it for the excerpt of each failed run
+// it can read, instead of downloading GitHub Actions job logs.
+type RunLogReader interface {
+	// CanReadLog reports whether run's log can be read, e.g. it's a Pipelines build.
+	CanReadLog(run CheckRun) bool
+	RunLog(ctx context.Context, owner, repo string, run CheckRun, maxLines int) (LogExcerpt, error)
+	// NoLogReason explains why the other runs have no excerpt.
+	NoLogReason() string
+}
+
 // FailedJobLog is the log excerpt of one failed check, or why there is none.
 type FailedJobLog struct {
 	Name    string      `json:"name"`
@@ -209,12 +221,13 @@ type FailedJobLog struct {
 const maxLogFetches = 5
 
 // FailedJobLogs returns log excerpts for the failed (not cancelled) runs among runs,
-// newest run per check only. Runs that aren't GitHub Actions jobs, and failures past
-// the first maxLogFetches, get an Error explaining why there's no excerpt. If ctx is
-// cancelled it returns ctx.Err().
+// newest run per check only. Runs that aren't GitHub Actions jobs (or, when c is a
+// RunLogReader, runs it can't read), and failures past the first maxLogFetches, get an
+// Error explaining why there's no excerpt. If ctx is cancelled it returns ctx.Err().
 func FailedJobLogs(ctx context.Context, c LogFetcher, owner, repo string, runs []CheckRun, maxLines int) ([]FailedJobLog, error) {
 	var out []FailedJobLog
 	fetched := 0
+	reader, hostLogs := c.(RunLogReader)
 	latest := LatestCheckRuns(runs)
 	sorted := make([]CheckRun, len(latest))
 	copy(sorted, latest)
@@ -229,10 +242,23 @@ func FailedJobLogs(ctx context.Context, c LogFetcher, owner, repo string, runs [
 		}
 		entry := FailedJobLog{Name: run.Name, URL: run.HTMLURL}
 		switch {
-		case !IsActionsJob(run):
+		case hostLogs && !reader.CanReadLog(run):
+			entry.Error = reader.NoLogReason()
+		case !hostLogs && !IsActionsJob(run):
 			entry.Error = "not a GitHub Actions job; prw only reads GitHub Actions logs so far"
 		case fetched >= maxLogFetches:
 			entry.Error = fmt.Sprintf("skipped: only the first %d failed jobs' logs are fetched", maxLogFetches)
+		case hostLogs:
+			fetched++
+			excerpt, err := reader.RunLog(ctx, owner, repo, run, maxLines)
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			if err != nil {
+				entry.Error = err.Error()
+			} else {
+				entry.Excerpt = &excerpt
+			}
 		default:
 			fetched++
 			log, err := c.GetJobLog(ctx, owner, repo, run.ID)

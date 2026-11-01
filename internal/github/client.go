@@ -506,19 +506,18 @@ func hasCISignal(status *CombinedStatus, runs []CheckRun) bool {
 	return legacyState != "" && !(legacyState == "pending" && status.TotalCount == 0)
 }
 
-// getJSON performs an authenticated GET request and decodes the JSON response into v.
 // GetJSON GETs BaseURL+path and decodes the JSON response into v, with the client's
 // authentication, ETag cache and rate-limit handling.
 func (c *Client) GetJSON(ctx context.Context, path string, v interface{}) error {
 	return c.getJSON(ctx, path, v)
 }
 
-func (c *Client) getJSON(ctx context.Context, path string, v interface{}) error {
+// newRequest builds an authenticated GET request for BaseURL+path.
+func (c *Client) newRequest(ctx context.Context, path string) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", c.BaseURL+path, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
-
 	// GitHub rejects an empty "Bearer " with 401 even for public repos, so only send the
 	// header when there is a token.
 	switch {
@@ -532,6 +531,38 @@ func (c *Client) getJSON(ctx context.Context, path string, v interface{}) error 
 		accept = "application/vnd.github.v3+json"
 	}
 	req.Header.Set("Accept", accept)
+	return req, nil
+}
+
+// GetText GETs BaseURL+path, following redirects, and returns at most the last limit
+// bytes of the body (for logs). It isn't cached.
+func (c *Client) GetText(ctx context.Context, path string, limit int) (string, error) {
+	req, err := c.newRequest(ctx, path)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Accept", "text/plain")
+	c.countRequest()
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	c.recordRateLimit(resp.Header)
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+		apiErr := newAPIError(resp, body)
+		apiErr.Service = c.Service
+		return "", apiErr
+	}
+	return readTail(resp.Body, limit)
+}
+
+func (c *Client) getJSON(ctx context.Context, path string, v interface{}) error {
+	req, err := c.newRequest(ctx, path)
+	if err != nil {
+		return err
+	}
 
 	c.mu.Lock()
 	cached, haveCached := c.cache[path]
