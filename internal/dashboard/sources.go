@@ -44,9 +44,11 @@ type GitHubAPI interface {
 // GitHubSource finds PRs with GitHub's search, across all repositories.
 type GitHubSource struct {
 	API GitHubAPI
+	// Host is a GitHub Enterprise host; empty means github.com.
+	Host string
 }
 
-func (s *GitHubSource) Name() string            { return "GitHub" }
+func (s *GitHubSource) Name() string            { return forge.ServiceName(s.Host) }
 func (s *GitHubSource) RequestsInLastHour() int { return s.API.RequestsInLastHour() }
 
 // Discover runs one search per selected filter and reads each PR (branches, head,
@@ -89,9 +91,10 @@ func (s *GitHubSource) Discover(ctx context.Context, f Filter) ([]Item, []string
 					errs[i] = err
 					return
 				}
-				ref := forge.Ref{Host: forge.GitHub, Owner: r.Owner, Repo: r.Repo, Number: r.Number}
+				host := forge.NormalizeHost(s.Host)
+				ref := forge.Ref{Host: host, Owner: r.Owner, Repo: r.Repo, Number: r.Number}
 				found[i] = Item{
-					Ref: ref, URL: ref.URL(), Host: forge.GitHub, Repo: r.Owner + "/" + r.Repo, Number: r.Number,
+					Ref: ref, URL: ref.URL(), Host: host, Repo: r.Owner + "/" + r.Repo, Number: r.Number,
 					Title: pr.Title, Source: pr.Head.Ref, Target: pr.Base.Ref, State: q.state, Role: q.role,
 					UpdatedAt: pr.UpdatedAt, HeadSHA: pr.Head.SHA, Merge: github.MergeStatus(pr),
 				}

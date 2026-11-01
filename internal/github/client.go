@@ -107,6 +107,37 @@ func NewClient(token string) *Client {
 	}
 }
 
+// EnterpriseAPIURL returns the REST API base URL of a GitHub Enterprise instance from
+// its web address: https://api.<host> for GHE.com (data residency) hosts, and
+// <scheme>://<host>/api/v3 for GitHub Enterprise Server.
+func EnterpriseAPIURL(webURL string) (string, error) {
+	raw := strings.TrimSpace(webURL)
+	if !strings.Contains(raw, "://") {
+		raw = "https://" + raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
+		return "", fmt.Errorf("github_enterprise_url %q is not a web address like https://github.example.com", webURL)
+	}
+	host := strings.ToLower(u.Host)
+	if strings.HasSuffix(host, ".ghe.com") {
+		return "https://api." + host, nil
+	}
+	return u.Scheme + "://" + host + "/api/v3", nil
+}
+
+// NewEnterpriseClient creates a client for the GitHub Enterprise instance at webURL.
+func NewEnterpriseClient(webURL, token string) (*Client, error) {
+	base, err := EnterpriseAPIURL(webURL)
+	if err != nil {
+		return nil, err
+	}
+	c := NewClient(token)
+	c.BaseURL = base
+	c.Service = "GitHub Enterprise"
+	return c, nil
+}
+
 // APIError is returned when GitHub responds with a non-200 status code.
 type APIError struct {
 	StatusCode int

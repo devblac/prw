@@ -171,6 +171,13 @@ func dashboardSources(cfg *config.Config) ([]dashboard.Source, error) {
 	if token := cfg.GetToken(); token != "" {
 		sources = append(sources, &dashboard.GitHubSource{API: newGitHubClient(token)})
 	}
+	if host := cfg.EnterpriseHost(); host != "" {
+		ghe, err := enterpriseClient(cfg, host)
+		if err != nil {
+			return nil, err
+		}
+		sources = append(sources, &dashboard.GitHubSource{API: ghe, Host: host})
+	}
 	if auth, _ := cfg.ResolveBitbucketAuth(); auth.Token != "" || cfg.BitbucketUser != "" {
 		sources = append(sources, &dashboard.BitbucketSource{
 			API:        newBitbucketClient(auth.Email, auth.Token),

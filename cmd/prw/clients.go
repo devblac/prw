@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/devblac/prw/internal/bitbucket"
@@ -27,11 +28,15 @@ var newBitbucketClient = func(email, token string) *bitbucket.Client {
 }
 
 // clientFor returns the client for PRs on host. GitHub needs a token; Bitbucket
-// works anonymously for public repositories.
+// works anonymously for public repositories; a GitHub Enterprise host must be the
+// one in github_enterprise_url.
 func clientFor(cfg *config.Config, host string) (prClient, error) {
-	if forge.IsBitbucket(host) {
+	switch {
+	case forge.IsBitbucket(host):
 		auth, _ := cfg.ResolveBitbucketAuth()
 		return newBitbucketClient(auth.Email, auth.Token), nil
+	case forge.IsEnterprise(host):
+		return enterpriseClient(cfg, host)
 	}
 	token := cfg.GetToken()
 	if token == "" {
@@ -40,13 +45,29 @@ func clientFor(cfg *config.Config, host string) (prClient, error) {
 	return newGitHubClient(token), nil
 }
 
-// needsGitHub reports whether the watch list or auto-watch involves GitHub.
+// newEnterpriseClient allows tests to point GitHub Enterprise requests at a fake server.
+var newEnterpriseClient = github.NewEnterpriseClient
+
+// enterpriseClient returns the client of the GitHub Enterprise instance on host.
+func enterpriseClient(cfg *config.Config, host string) (*github.Client, error) {
+	configured := cfg.EnterpriseHost()
+	if configured == "" || forge.NormalizeHost(host) != forge.NormalizeHost(configured) {
+		return nil, fmt.Errorf("%s is not a known host: for GitHub Enterprise, run 'prw config set github_enterprise_url https://%s'", host, host)
+	}
+	token, _ := cfg.ResolveEnterpriseToken()
+	if token == "" {
+		return nil, fmt.Errorf("missing GitHub Enterprise token for %s: run 'gh auth login --hostname %s', set GH_ENTERPRISE_TOKEN, or 'prw config set github_enterprise_token <token>'", host, host)
+	}
+	return newEnterpriseClient(cfg.GitHubEnterpriseURL, token)
+}
+
+// needsGitHub reports whether the watch list or auto-watch involves github.com.
 func needsGitHub(cfg *config.Config) bool {
-	if len(cfg.AutoWatch) > 0 && !bitbucketConfigured(cfg) {
+	if len(cfg.AutoWatch) > 0 && !bitbucketConfigured(cfg) && cfg.EnterpriseHost() == "" {
 		return true // auto-watch has nothing else to search
 	}
 	for _, pr := range cfg.WatchedPRs {
-		if !forge.IsBitbucket(pr.Host) {
+		if forge.NormalizeHost(pr.Host) == forge.GitHub {
 			return true
 		}
 	}
@@ -67,10 +88,27 @@ func autoWatchFinders(cfg *config.Config, bb *bitbucket.Client) []watcher.Finder
 	if token := cfg.GetToken(); token != "" {
 		finders = append(finders, watcher.GitHubFinder{Searcher: newGitHubClient(token)})
 	}
+	if f := enterpriseFinder(cfg); f != nil {
+		finders = append(finders, f)
+	}
 	if f := bitbucketFinder(cfg, bb); f != nil {
 		finders = append(finders, f)
 	}
 	return finders
+}
+
+// enterpriseFinder returns the GitHub Enterprise auto-watch finder, or nil without
+// a usable github_enterprise_url and token.
+func enterpriseFinder(cfg *config.Config) watcher.Finder {
+	host := cfg.EnterpriseHost()
+	if host == "" {
+		return nil
+	}
+	c, err := enterpriseClient(cfg, host)
+	if err != nil {
+		return nil
+	}
+	return watcher.GitHubFinder{Searcher: c, HostName: host}
 }
 
 // bitbucketFinder returns the Bitbucket auto-watch finder, or nil without a Bitbucket

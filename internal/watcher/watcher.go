@@ -87,7 +87,8 @@ func New(client GitHubClient, cfg *config.Config, notifier notify.Notifier) *Wat
 	}
 }
 
-// SetClient sets the client used for PRs on host (forge.Bitbucket).
+// SetClient sets the client used for PRs on host (forge.Bitbucket, or a GitHub
+// Enterprise host).
 func (w *Watcher) SetClient(host string, client GitHubClient) {
 	w.clients[forge.NormalizeHost(host)] = client
 }
@@ -267,12 +268,7 @@ func (w *Watcher) pauseForRateLimit(host string, resetAt time.Time) {
 		serviceName(host), resetAt.Local().Format("15:04:05"), resetAt.Sub(now).Round(time.Second))
 }
 
-func serviceName(host string) string {
-	if forge.IsBitbucket(host) {
-		return "Bitbucket"
-	}
-	return "GitHub"
-}
+func serviceName(host string) string { return forge.ServiceName(host) }
 
 // errNoClient is returned for PRs on a host prw has no client for (no token).
 var errNoClient = errors.New("no client for this host")
