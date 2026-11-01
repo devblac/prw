@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Auto-watch on Bitbucket Cloud: `prw watch --mine` / `--review-requested` and `prw run` also find your Bitbucket PRs (when a Bitbucket token or `bitbucket_user` is set): your open PRs in every workspace (or `bitbucket_workspaces`), and open PRs listing you as a reviewer that you haven't approved or requested changes on, in repositories active in the last 30 days (rescanned every 15 minutes). Without a GitHub token, auto-watch works on Bitbucket alone.
+
+### Changed
+- `prw run` checks Bitbucket PRs less often as the watch list grows (every 18 seconds × the number of Bitbucket PRs, at least a minute), keeping checks around 600 of Bitbucket's 1,000 requests per hour.
+
 ## [0.5.0] - 2026-10-31
 
 prw now works with Bitbucket Cloud as well as GitHub, and `prw dashboard` shows all your PRs across repositories in one live table, grouped by task, with one column per target branch — handy when a change travels dev → rc → master as cherry-picks.

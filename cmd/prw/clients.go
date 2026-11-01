@@ -9,6 +9,7 @@ import (
 	"github.com/devblac/prw/internal/config"
 	"github.com/devblac/prw/internal/forge"
 	"github.com/devblac/prw/internal/github"
+	"github.com/devblac/prw/internal/watcher"
 )
 
 // prClient is everything the commands use from a code host's client. Both the
@@ -41,8 +42,8 @@ func clientFor(cfg *config.Config, host string) (prClient, error) {
 
 // needsGitHub reports whether the watch list or auto-watch involves GitHub.
 func needsGitHub(cfg *config.Config) bool {
-	if len(cfg.AutoWatch) > 0 {
-		return true // auto-watch searches GitHub
+	if len(cfg.AutoWatch) > 0 && !bitbucketConfigured(cfg) {
+		return true // auto-watch has nothing else to search
 	}
 	for _, pr := range cfg.WatchedPRs {
 		if !forge.IsBitbucket(pr.Host) {
@@ -50,6 +51,35 @@ func needsGitHub(cfg *config.Config) bool {
 		}
 	}
 	return len(cfg.WatchedPRs) == 0 // nothing yet: GitHub is the default
+}
+
+// bitbucketConfigured reports whether prw knows who you are on Bitbucket, which
+// finding your PRs there needs.
+func bitbucketConfigured(cfg *config.Config) bool {
+	auth, _ := cfg.ResolveBitbucketAuth()
+	return auth.Token != "" || cfg.BitbucketUser != ""
+}
+
+// autoWatchFinders returns the auto-watch finders of the configured accounts; bb is
+// the Bitbucket client to use.
+func autoWatchFinders(cfg *config.Config, bb *bitbucket.Client) []watcher.Finder {
+	var finders []watcher.Finder
+	if token := cfg.GetToken(); token != "" {
+		finders = append(finders, watcher.GitHubFinder{Searcher: newGitHubClient(token)})
+	}
+	if f := bitbucketFinder(cfg, bb); f != nil {
+		finders = append(finders, f)
+	}
+	return finders
+}
+
+// bitbucketFinder returns the Bitbucket auto-watch finder, or nil without a Bitbucket
+// account.
+func bitbucketFinder(cfg *config.Config, bb *bitbucket.Client) *watcher.BitbucketFinder {
+	if !bitbucketConfigured(cfg) {
+		return nil
+	}
+	return &watcher.BitbucketFinder{API: bb, User: cfg.BitbucketUser, Workspaces: cfg.BitbucketWorkspaces}
 }
 
 // bitbucketAuthHint explains how to authenticate when Bitbucket refuses a request:

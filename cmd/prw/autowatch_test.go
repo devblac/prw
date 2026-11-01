@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -217,9 +218,10 @@ func TestWatchCmd_MineNeedsToken(t *testing.T) {
 	setupAutoWatchCmd(t, nil, nil)
 	config.Update(func(c *config.Config) error { c.GitHubToken = ""; return nil })
 	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("BITBUCKET_TOKEN", "")
 	watchMine = true
 
-	if err := watchCmd.RunE(watchCmd, nil); err != errMissingToken {
+	if err := watchCmd.RunE(watchCmd, nil); !errors.Is(err, errMissingToken) {
 		t.Errorf("err = %v, want errMissingToken", err)
 	}
 	if cfg, _ := config.Load(); len(cfg.AutoWatch) != 0 {
