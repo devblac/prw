@@ -418,6 +418,21 @@ prw config set bitbucket_token <api-token>
 
 A workspace, project or repository access token also works: set only `bitbucket_token` (it's sent as a Bearer token). No GitHub token is needed if you only watch Bitbucket PRs.
 
+## GitHub Enterprise
+
+prw also works with **GitHub Enterprise Server** and **GHE.com**, alongside github.com: tell it where your instance is, and pass its PR URLs wherever a PR URL goes.
+
+```bash
+prw config set github_enterprise_url https://github.acme.com
+gh auth login --hostname github.acme.com    # or set GH_ENTERPRISE_TOKEN
+prw watch https://github.acme.com/team/api/pull/9
+```
+
+- The API is `https://<host>/api/v3` for Enterprise Server and `https://api.<subdomain>.ghe.com` for GHE.com.
+- The token comes from `github_enterprise_token`, `GH_ENTERPRISE_TOKEN` / `GITHUB_ENTERPRISE_TOKEN` (the GitHub CLI's variables), or `gh auth token --hostname <host>`. Your github.com token is never sent there, nor the other way round.
+- `prw run`, `wait`, `checks` (with `--logs`), `list`, `broadcast`, `dashboard`, the auto-watch searches (`--mine` / `--review-requested` cover both hosts) and the MCP tools all work with it. `prw list` shows its PRs as `github.acme.com:team/api`.
+- One Enterprise instance at a time; `prw flaky` is github.com only for now.
+
 ## Configuration
 
 Configuration is stored in `~/.prw/config.json`. You can manage settings via the `config` subcommand.
@@ -469,6 +484,7 @@ prw config set webhook_url https://hooks.slack.com/services/YOUR/WEBHOOK/URL
 - **`notification_native`**: Enable native OS notifications (true/false, default: false)
 - **`pr_events`**: Also notify about reviews and merge conflicts / readiness (true/false, default: true)
 - **`github_token`**: GitHub Personal Access Token (prefer env var `GITHUB_TOKEN`)
+- **`github_enterprise_url`** / **`github_enterprise_token`**: your GitHub Enterprise instance and its token (env `GH_ENTERPRISE_TOKEN`; see [GitHub Enterprise](#github-enterprise))
 - **`bitbucket_token`** / **`bitbucket_email`**: Bitbucket Cloud API token and its Atlassian email, or an access token alone (env `BITBUCKET_TOKEN` / `BITBUCKET_EMAIL`)
 
 ## Notifications

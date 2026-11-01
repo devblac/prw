@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- GitHub Enterprise Server and GHE.com, alongside github.com: set `github_enterprise_url` (e.g. `https://github.acme.com`) and every command, auto-watch, the dashboard and the MCP tools accept that host's PR URLs. The token comes from `github_enterprise_token`, `GH_ENTERPRISE_TOKEN` / `GITHUB_ENTERPRISE_TOKEN`, or `gh auth token --hostname <host>`. (#2)
 - Auto-watch on Bitbucket Cloud: `prw watch --mine` / `--review-requested` and `prw run` also find your Bitbucket PRs (when a Bitbucket token or `bitbucket_user` is set): your open PRs in every workspace (or `bitbucket_workspaces`), and open PRs listing you as a reviewer that you haven't approved or requested changes on, in repositories active in the last 30 days (rescanned every 15 minutes). Without a GitHub token, auto-watch works on Bitbucket alone.
 
 ### Changed

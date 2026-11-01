@@ -47,17 +47,19 @@ type Found struct {
 
 // Finder finds the open PRs of an auto-watch source on one code host.
 type Finder interface {
-	Host() string // forge.GitHub, forge.Bitbucket
+	Host() string // forge.GitHub, forge.Bitbucket, or a GitHub Enterprise host
 	Find(ctx context.Context, source string) (*Found, error)
 	GetPullRequest(ctx context.Context, owner, repo string, number int) (*github.PullRequest, error)
 }
 
-// GitHubFinder finds PRs with GitHub's search.
+// GitHubFinder finds PRs with GitHub's search, on github.com or, with HostName, on a
+// GitHub Enterprise host.
 type GitHubFinder struct {
 	Searcher
+	HostName string
 }
 
-func (GitHubFinder) Host() string { return forge.GitHub }
+func (f GitHubFinder) Host() string { return forge.NormalizeHost(f.HostName) }
 
 func (f GitHubFinder) Find(ctx context.Context, source string) (*Found, error) {
 	query, ok := autoWatchQueries[source]
@@ -86,7 +88,7 @@ type SyncResult struct {
 // SyncAutoWatch runs GitHub's search for every source in sources and updates the watch
 // list; see Sync.
 func SyncAutoWatch(ctx context.Context, client Searcher, sources []string) (*SyncResult, error) {
-	return Sync(ctx, []Finder{GitHubFinder{client}}, sources)
+	return Sync(ctx, []Finder{GitHubFinder{Searcher: client}}, sources)
 }
 
 // Sync runs every source in sources on every finder's host and updates the watch list:
@@ -231,19 +233,15 @@ func (w *Watcher) AddFinder(f Finder) {
 func (w *Watcher) autoWatchFinders() []Finder {
 	var finders []Finder
 	if s, ok := w.client.(Searcher); ok && !isNilClient(w.client) {
-		finders = append(finders, GitHubFinder{s})
+		finders = append(finders, GitHubFinder{Searcher: s})
 	}
 	return append(finders, w.finders...)
 }
 
-// DisplayPR names a watched PR: owner/repo#N, prefixed with "bitbucket:" for
-// Bitbucket.
+// DisplayPR names a watched PR: owner/repo#N, prefixed with "bitbucket:" on
+// Bitbucket and with the host on GitHub Enterprise.
 func DisplayPR(pr config.WatchedPR) string {
-	name := fmt.Sprintf("%s/%s#%d", pr.Owner, pr.Repo, pr.Number)
-	if forge.IsBitbucket(pr.Host) {
-		name = "bitbucket:" + name
-	}
-	return name
+	return forge.Display(pr.Host, pr.Owner, pr.Repo, pr.Number)
 }
 
 // syncAutoWatch refreshes the auto-watch searches during `prw run` and reports changes.
