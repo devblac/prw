@@ -310,7 +310,7 @@ func (c *Client) GetReviews(ctx context.Context, workspace, repo string, number 
 	return reviews, nil
 }
 
-// GetJobLog is not available for Bitbucket yet.
+// GetJobLog is GitHub Actions only; Pipelines logs are read with RunLog.
 func (c *Client) GetJobLog(ctx context.Context, workspace, repo string, jobID int64) (string, error) {
 	return "", ErrUnsupported
 }

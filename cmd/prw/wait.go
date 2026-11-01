@@ -69,7 +69,7 @@ func init() {
 	waitCmd.Flags().DurationVar(&waitTimeout, "timeout", 30*time.Minute, "give up after this long (0 = wait forever)")
 	waitCmd.Flags().DurationVar(&waitInterval, "interval", 15*time.Second, "how often to poll GitHub")
 	waitCmd.Flags().BoolVar(&waitJSON, "json", false, "print the result as JSON on stdout")
-	waitCmd.Flags().BoolVar(&waitLogs, "logs", false, "on failure, also print the end of the log of each failed GitHub Actions job")
+	waitCmd.Flags().BoolVar(&waitLogs, "logs", false, "on failure, also print the end of the log of each failed GitHub Actions job or Bitbucket Pipelines build")
 	waitCmd.Flags().IntVar(&waitLogLines, "log-lines", github.DefaultLogLines, "lines of each failed job's log to show with --logs")
 }
 
@@ -94,7 +94,7 @@ Exit codes:
 
 Progress goes to stderr; the result goes to stdout (as JSON with --json). With
 --logs, a failure also prints the output of the step that failed in each failed
-GitHub Actions job (failed_logs in --json).`,
+GitHub Actions job or Bitbucket Pipelines build (failed_logs in --json).`,
 	Example: `  prw wait https://github.com/owner/repo/pull/123
   prw wait https://github.com/owner/repo/pull/123 --timeout 10m --json
   prw wait https://github.com/owner/repo/pull/123 --logs
@@ -179,7 +179,8 @@ type waitResult struct {
 	SHA          string               `json:"sha,omitempty"`
 	State        string               `json:"state"` // success, failure, error, pending, merged, closed
 	FailedChecks []github.FailedCheck `json:"failed_checks,omitempty"`
-	// FailedLogs has the log excerpt of each failed GitHub Actions job (--logs).
+	// FailedLogs has the log excerpt of each failed GitHub Actions job or Pipelines
+	// build (--logs).
 	FailedLogs    []github.FailedJobLog `json:"failed_logs,omitempty"`
 	TotalChecks   int                   `json:"total_checks"`
 	PendingChecks int                   `json:"pending_checks"`
