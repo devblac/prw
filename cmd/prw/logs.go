@@ -12,7 +12,8 @@ import (
 // maxMCPLogLines caps the log lines per failed job returned to agents.
 const maxMCPLogLines = 200
 
-// fetchFailedLogs gets log excerpts of the failed GitHub Actions jobs of a commit.
+// fetchFailedLogs gets log excerpts of the failed GitHub Actions jobs (or Bitbucket
+// Pipelines builds) of a commit.
 // Failed commit statuses (external CI) are listed too, with their link, since they
 // have no log in the API.
 func fetchFailedLogs(ctx context.Context, client ciClient, owner, repo, sha string, maxLines int) ([]github.FailedJobLog, error) {

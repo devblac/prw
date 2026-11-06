@@ -469,7 +469,7 @@ var mcpTools = []map[string]interface{}{
 	{
 		"name":        "get_failed_logs",
 		"title":       "Get failed CI job logs",
-		"description": "For each failed GitHub Actions job on a pull request's head commit, return the output of the step that failed: its last lines up to the error, with timestamps and colors stripped. Use it after get_ci_status or wait_for_ci report a failure, to see why without opening the browser. Checks from other CI systems have no log here; their links are returned instead. At most 5 job logs are downloaded per call.",
+		"description": "For each failed GitHub Actions job or Bitbucket Pipelines build on a pull request's head commit, return the output of the step that failed: its last lines up to the error, with timestamps and colors stripped. Use it after get_ci_status or wait_for_ci report a failure, to see why without opening the browser. Checks from other CI systems have no log here; their links are returned instead. At most 5 job logs are downloaded per call.",
 		"inputSchema": map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{

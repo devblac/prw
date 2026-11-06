@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Bitbucket Pipelines logs: `prw checks --logs`, `prw wait --logs` and the MCP tool `get_failed_logs` show, for each failed Pipelines build, the output of the script command that failed in its first failed step (from the last `+ command` line up to the teardown), or the reason Bitbucket gives when there's no log (e.g. a timeout). Needs a token with the pipeline read scope.
 - Auto-watch on Bitbucket Cloud: `prw watch --mine` / `--review-requested` and `prw run` also find your Bitbucket PRs (when a Bitbucket token or `bitbucket_user` is set): your open PRs in every workspace (or `bitbucket_workspaces`), and open PRs listing you as a reviewer that you haven't approved or requested changes on, in repositories active in the last 30 days (rescanned every 15 minutes). Without a GitHub token, auto-watch works on Bitbucket alone.
 
 ### Changed
