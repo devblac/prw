@@ -79,3 +79,31 @@ func TestConfigSet_EnterpriseURL(t *testing.T) {
 		t.Errorf("unset: %v", err)
 	}
 }
+
+func TestNeedsGitHub(t *testing.T) {
+	t.Setenv("BITBUCKET_TOKEN", "")
+	t.Setenv("BITBUCKET_EMAIL", "")
+	mine := []string{config.AutoWatchMine}
+	ghPR := []config.WatchedPR{{Owner: "o", Repo: "r", Number: 1}}
+	bbPR := []config.WatchedPR{{Host: forge.Bitbucket, Owner: "o", Repo: "r", Number: 1}}
+	ghe := "https://github.acme.com"
+
+	for _, tt := range []struct {
+		name string
+		cfg  config.Config
+		want bool
+	}{
+		{"nothing configured", config.Config{}, true},
+		{"auto-watch with no other account", config.Config{AutoWatch: mine}, true},
+		{"github.com PR always needs it", config.Config{WatchedPRs: ghPR, BitbucketToken: "t"}, true},
+		{"only Bitbucket PRs", config.Config{WatchedPRs: bbPR}, false},
+		{"Bitbucket auto-watch, empty list", config.Config{AutoWatch: mine, BitbucketToken: "t"}, false},
+		{"Enterprise auto-watch, empty list", config.Config{AutoWatch: mine, GitHubEnterpriseURL: ghe}, false},
+		{"Enterprise account, empty list", config.Config{GitHubEnterpriseURL: ghe}, false},
+	} {
+		cfg := tt.cfg
+		if got := needsGitHub(&cfg); got != tt.want {
+			t.Errorf("%s: needsGitHub = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}

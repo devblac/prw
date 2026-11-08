@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/devblac/prw/internal/forge"
 )
 
 const (
@@ -400,11 +402,12 @@ func (c *Client) SearchPullRequests(ctx context.Context, query string) (*SearchR
 			if item.PullRequest == nil {
 				continue // an issue, not a PR
 			}
-			owner, repo, number, err := ParsePRURL(item.HTMLURL)
+			// forge also accepts GitHub Enterprise links, unlike ParsePRURL.
+			ref, err := forge.ParsePRURL(item.HTMLURL)
 			if err != nil {
 				continue
 			}
-			result.PRs = append(result.PRs, SearchResultPR{Owner: owner, Repo: repo, Number: number, Title: item.Title})
+			result.PRs = append(result.PRs, SearchResultPR{Owner: ref.Owner, Repo: ref.Repo, Number: ref.Number, Title: item.Title})
 		}
 		if len(resp.Items) < searchPerPage || page*searchPerPage >= resp.TotalCount {
 			return result, nil

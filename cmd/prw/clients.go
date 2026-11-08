@@ -61,17 +61,19 @@ func enterpriseClient(cfg *config.Config, host string) (*github.Client, error) {
 	return newEnterpriseClient(cfg.GitHubEnterpriseURL, token)
 }
 
-// needsGitHub reports whether the watch list or auto-watch involves github.com.
+// needsGitHub reports whether a github.com token is required: a github.com PR is
+// watched, or there is nothing but github.com to search (auto-watch or an empty watch
+// list with no Bitbucket or GitHub Enterprise account).
 func needsGitHub(cfg *config.Config) bool {
-	if len(cfg.AutoWatch) > 0 && !bitbucketConfigured(cfg) && cfg.EnterpriseHost() == "" {
-		return true // auto-watch has nothing else to search
-	}
 	for _, pr := range cfg.WatchedPRs {
 		if forge.NormalizeHost(pr.Host) == forge.GitHub {
 			return true
 		}
 	}
-	return len(cfg.WatchedPRs) == 0 // nothing yet: GitHub is the default
+	if len(cfg.AutoWatch) == 0 && len(cfg.WatchedPRs) > 0 {
+		return false
+	}
+	return !bitbucketConfigured(cfg) && cfg.EnterpriseHost() == ""
 }
 
 // bitbucketConfigured reports whether prw knows who you are on Bitbucket, which
