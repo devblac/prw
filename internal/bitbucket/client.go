@@ -15,6 +15,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"net/url"
 	"strings"
 	"sync"
@@ -227,7 +228,7 @@ type buildStatus struct {
 
 // GetCheckRuns returns the commit's build statuses (Bitbucket Pipelines, Jenkins, ...)
 // as check runs. A status is updated in place when its build reruns, so each key
-// appears once; IDs grow with the last update so the newest wins on duplicate names.
+// appears once; each key gets its own App.ID so none is taken for a rerun of another.
 func (c *Client) GetCheckRuns(ctx context.Context, workspace, repo, ref string) ([]github.CheckRun, error) {
 	var runs []github.CheckRun
 	path := fmt.Sprintf("%s/commit/%s/statuses?pagelen=%d", repoPath(workspace, repo), url.PathEscape(ref), statusesPageLen)
@@ -253,6 +254,11 @@ func toCheckRun(s buildStatus) github.CheckRun {
 		name = s.Key
 	}
 	run := github.CheckRun{ID: s.UpdatedOn.UnixNano(), Name: name, HTMLURL: s.URL, StartedAt: s.CreatedOn}
+	// A status is identified by its key: without this, two builds sharing a display name
+	// would look like reruns of one check and the newer would hide the other.
+	h := fnv.New64a()
+	h.Write([]byte(s.Key))
+	run.App.ID = int64(h.Sum64())
 	switch strings.ToUpper(s.State) {
 	case "INPROGRESS":
 		run.Status = "in_progress"

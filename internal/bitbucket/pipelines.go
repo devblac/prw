@@ -94,7 +94,17 @@ func (c *Client) RunLog(ctx context.Context, workspace, repo string, run github.
 	}
 	reason := step.State.Result.Error.Message // e.g. "Exceeded build time limit of 120 minutes."
 
-	logPath := fmt.Sprintf("%s/pipelines/%s/steps/%s/log", repoPath(workspace, repo), url.PathEscape(step.Pipeline.UUID), url.PathEscape(step.UUID))
+	pipeline := step.Pipeline.UUID
+	if pipeline == "" { // Bitbucket sends it, but its API schema doesn't promise it
+		var p struct {
+			UUID string `json:"uuid"`
+		}
+		if err := c.http.GetJSON(ctx, fmt.Sprintf("%s/pipelines/%d?fields=uuid", repoPath(workspace, repo), number), &p); err != nil {
+			return github.LogExcerpt{}, fmt.Errorf("failed to read pipeline #%d: %w", number, err)
+		}
+		pipeline = p.UUID
+	}
+	logPath := fmt.Sprintf("%s/pipelines/%s/steps/%s/log", repoPath(workspace, repo), url.PathEscape(pipeline), url.PathEscape(step.UUID))
 	log, err := c.http.GetText(ctx, logPath, maxStepLogBytes)
 	if err != nil {
 		var apiErr *github.APIError

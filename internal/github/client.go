@@ -149,7 +149,9 @@ type PullRequest struct {
 	Title  string `json:"title"`
 	State  string `json:"state"` // open or closed
 	Merged bool   `json:"merged"`
-	Head   struct {
+	// MergedAt is when the PR was merged; nil if it wasn't.
+	MergedAt *time.Time `json:"merged_at"`
+	Head     struct {
 		SHA string `json:"sha"`
 		Ref string `json:"ref"` // source branch
 	} `json:"head"`

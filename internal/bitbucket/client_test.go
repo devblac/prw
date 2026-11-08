@@ -251,3 +251,11 @@ func TestRelativeDoesNotFollowOtherHosts(t *testing.T) {
 		t.Errorf("relative = %q", got)
 	}
 }
+
+func TestGetCheckRuns_SameNameDifferentKeysStayApart(t *testing.T) {
+	failed := toCheckRun(buildStatus{Key: "lint", Name: "CI", State: "FAILED", UpdatedOn: time.Unix(100, 0)})
+	passed := toCheckRun(buildStatus{Key: "unit", Name: "CI", State: "SUCCESSFUL", UpdatedOn: time.Unix(200, 0)})
+	if got := github.LatestCheckRuns([]github.CheckRun{failed, passed}); len(got) != 2 {
+		t.Errorf("a newer status with another key must not hide the failed one: %+v", got)
+	}
+}

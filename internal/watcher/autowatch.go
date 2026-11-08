@@ -48,6 +48,8 @@ type Found struct {
 // Finder finds the open PRs of an auto-watch source on one code host.
 type Finder interface {
 	Host() string // forge.GitHub, forge.Bitbucket
+	// Find returns nil, nil when the source isn't due for a new search, which leaves
+	// its PRs as they are.
 	Find(ctx context.Context, source string) (*Found, error)
 	GetPullRequest(ctx context.Context, owner, repo string, number int) (*github.PullRequest, error)
 }
@@ -120,6 +122,9 @@ func Sync(ctx context.Context, finders []Finder, sources []string) (*SyncResult,
 				lastErr = err
 				result.Warnings = append(result.Warnings, fmt.Sprintf("%s search for %s failed: %v", serviceName(f.Host()), AutoWatchDescription[source], err))
 				continue
+			}
+			if found == nil {
+				continue // not due: nothing new to add or remove
 			}
 			if found.Partial != "" {
 				result.Warnings = append(result.Warnings, fmt.Sprintf("%s search for %s %s; PRs that no longer match are kept",

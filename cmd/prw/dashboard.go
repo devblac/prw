@@ -125,6 +125,8 @@ with 'prw config set branch_order dev,qa,main'.`,
 		}
 		view := dashboardView{grouper: grouper, order: cfg.BranchOrder, filter: filter, links: tty && !dashNoLinks}
 		for {
+			filter = advanceMergedCutoff(filter, mergedWindow, time.Now())
+			view.filter = filter
 			items, warnings := collector.Refresh(ctx, filter)
 			if ctx.Err() != nil {
 				return nil
@@ -182,6 +184,15 @@ func dashboardSources(cfg *config.Config) ([]dashboard.Source, error) {
 		return nil, fmt.Errorf("no account configured: log in with 'gh auth login' (GitHub) and/or set 'prw config set bitbucket_token' (Bitbucket)")
 	}
 	return sources, nil
+}
+
+// advanceMergedCutoff moves the --merged cutoff to window before now, so that in live
+// mode merged PRs age out of the window.
+func advanceMergedCutoff(f dashboard.Filter, window time.Duration, now time.Time) dashboard.Filter {
+	if !f.MergedSince.IsZero() {
+		f.MergedSince = now.Add(-window)
+	}
+	return f
 }
 
 type dashboardView struct {

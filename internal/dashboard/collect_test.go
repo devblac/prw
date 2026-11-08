@@ -124,3 +124,18 @@ func TestCollector_Requests(t *testing.T) {
 		t.Errorf("Requests = %s", got)
 	}
 }
+
+func TestCollector_KeepsReadingCIWhileChecksRunNextToAFailure(t *testing.T) {
+	c := NewCollector(newFake())
+	it := pr(1, "a", StateOpen)
+	it.CI, it.CIDone, it.CITotal = "failure", 1, 3
+	c.storeCI(it)
+	if !c.needsCI(it) {
+		t.Error("a failed check with others still running must be read again")
+	}
+	it.CIDone = 3
+	c.storeCI(it)
+	if c.needsCI(it) {
+		t.Error("a finished failed suite must wait for the recheck interval")
+	}
+}
