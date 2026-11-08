@@ -328,7 +328,7 @@ Runs superseded by a newer run of the same check (e.g. cancelled by `concurrency
 
 ### Why did it fail? `--logs`
 
-`prw checks --logs` (and `prw wait --logs`) also print, for each failed GitHub Actions job, the output of the step that failed: its last lines up to the error, with timestamps, colors and runner markup stripped — what you'd scroll to in the browser.
+`prw checks --logs` (and `prw wait --logs`) also print, for each failed GitHub Actions job or Bitbucket Pipelines build, the output of the step that failed: its last lines up to the error, with timestamps, colors and runner markup stripped — what you'd scroll to in the browser.
 
 ```
 $ prw checks https://github.com/owner/repo/pull/123 --logs
@@ -383,7 +383,7 @@ Tools:
 | Tool | What it does |
 |------|--------------|
 | `get_ci_status` | Current state of a PR (`success`, `failure`, `error`, `pending`, `merged`, `closed`, `no_ci`), check counts, failed checks with links. Returns immediately. |
-| `get_failed_logs` | For each failed GitHub Actions job, the output of the step that failed (last `max_lines` lines up to the error, default 40). What an agent needs to fix the failure without a browser. |
+| `get_failed_logs` | For each failed GitHub Actions job or Bitbucket Pipelines build, the output of the step that failed (last `max_lines` lines up to the error, default 40). What an agent needs to fix the failure without a browser. |
 | `get_flaky_checks` | A repository's jobs that failed and then passed on re-run of the same commit, with counts and links — so an agent can tell a known-flaky failure from one its change caused. |
 | `wait_for_ci` | Blocks until CI finishes (`timeout_seconds` default 600, max 3600). Fails fast on the first failed check, follows new pushes, sends progress notifications. On timeout it returns `pending` with `timed_out: true` so the agent can call it again. |
 | `list_watched` | PRs on the local watch list with their last known state. |
@@ -406,7 +406,8 @@ prw checks https://bitbucket.org/acme/api/pull-requests/42
 - `prw run` notifies about Bitbucket PRs just like GitHub ones, `prw list` shows them as `bitbucket:workspace/repo`, and the MCP tools accept their URLs.
 - **Auto-watch**: `prw watch --mine` follows your open PRs in all your workspaces (or those in `bitbucket_workspaces`). `--review-requested` follows open PRs that list you as a reviewer and that you haven't approved or requested changes on yet; Bitbucket can only search those per repository, so prw scans the repositories active in the last 30 days (up to 60 per workspace) every 15 minutes.
 - Bitbucket Cloud allows 1,000 API requests per hour, so `prw run` spaces out the checks of Bitbucket PRs whatever the poll interval: each is checked at most once a minute, and less often as the list grows (every 18 seconds × the number of Bitbucket PRs, e.g. every 9 minutes with 30), so checks use about 600 requests an hour and leave room for auto-watch and other commands. A rate limit on one service doesn't pause the other.
-- Not yet for Bitbucket: `--logs` and `prw flaky`.
+- **`--logs`** shows, for each failed Pipelines build, the output of the script command that failed in its first failed step (reading Pipelines logs needs a token with the pipeline read scope; without it, prw shows the reason Bitbucket gives, e.g. a timeout). Builds from other CI systems (Jenkins, ...) are listed with their link.
+- Not yet for Bitbucket: `prw flaky`.
 
 **Authentication.** Public repositories work without credentials. For private ones, create an [Atlassian API token](https://id.atlassian.com/manage-profile/security/api-tokens) with Bitbucket read scopes (repositories and pull requests) and give prw your Atlassian email with it:
 
