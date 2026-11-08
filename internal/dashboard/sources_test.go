@@ -230,3 +230,23 @@ func TestGitHubSource(t *testing.T) {
 		t.Errorf("enriched = %+v", it)
 	}
 }
+
+func TestGitHubSource_FiltersMergedByMergeTime(t *testing.T) {
+	cutoff := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
+	before, after := cutoff.Add(-time.Hour), cutoff.Add(time.Hour)
+	oldMerge := ghPR(5, "old", "main", "closed", after) // commented on after the cutoff
+	oldMerge.MergedAt = &before
+	newMerge := ghPR(6, "new", "main", "closed", after)
+	newMerge.MergedAt = &after
+	api := &fakeGitHub{
+		results: map[string][]github.SearchResultPR{"author:@me merged:": {{Owner: "o", Repo: "r", Number: 5}, {Owner: "o", Repo: "r", Number: 6}}},
+		prs:     map[int]*github.PullRequest{5: oldMerge, 6: newMerge},
+	}
+	items, _, err := (&GitHubSource{API: api}).Discover(context.Background(), Filter{MergedSince: cutoff})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].Number != 6 {
+		t.Errorf("items = %+v, want only the PR merged after the cutoff", items)
+	}
+}

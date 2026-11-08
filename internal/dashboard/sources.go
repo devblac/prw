@@ -93,7 +93,7 @@ func (s *GitHubSource) Discover(ctx context.Context, f Filter) ([]Item, []string
 				found[i] = Item{
 					Ref: ref, URL: ref.URL(), Host: forge.GitHub, Repo: r.Owner + "/" + r.Repo, Number: r.Number,
 					Title: pr.Title, Source: pr.Head.Ref, Target: pr.Base.Ref, State: q.state, Role: q.role,
-					UpdatedAt: pr.UpdatedAt, HeadSHA: pr.Head.SHA, Merge: github.MergeStatus(pr),
+					UpdatedAt: pr.UpdatedAt, MergedAt: pr.MergedAt, HeadSHA: pr.Head.SHA, Merge: github.MergeStatus(pr),
 				}
 			}(i, r)
 		}
@@ -103,13 +103,20 @@ func (s *GitHubSource) Discover(ctx context.Context, f Filter) ([]Item, []string
 				warnings = append(warnings, fmt.Sprintf("%s/%s#%d: %v", res.PRs[i].Owner, res.PRs[i].Repo, res.PRs[i].Number, errs[i]))
 				continue
 			}
-			if q.state == StateMerged && it.UpdatedAt.Before(f.MergedSince) {
-				continue
+			if q.state == StateMerged && mergedBefore(it, f.MergedSince) {
+				continue // the search only filters by day
 			}
 			items = append(items, it)
 		}
 	}
 	return items, warnings, nil
+}
+
+func mergedBefore(it Item, cutoff time.Time) bool {
+	if it.MergedAt != nil {
+		return it.MergedAt.Before(cutoff)
+	}
+	return it.UpdatedAt.Before(cutoff)
 }
 
 // Enrich reads CI (when needed) and reviews.

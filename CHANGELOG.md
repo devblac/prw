@@ -14,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - `prw run` checks Bitbucket PRs less often as the watch list grows (every 18 seconds × the number of Bitbucket PRs, at least a minute), keeping checks around 600 of Bitbucket's 1,000 requests per hour.
 
+### Fixed
+- Bitbucket: two build statuses sharing a display name are no longer taken for reruns of one check; a newer success could hide a failed or running build.
+- `prw dashboard --merged`: in live mode merged PRs now age out of the window, and on GitHub they are filtered by when they were merged rather than last updated.
+- `prw dashboard`: CI keeps refreshing while checks are still running next to a failed one.
+- Bitbucket auto-watch: a PR to review that closed between review scans is no longer added back and notified about again.
+- Bitbucket Pipelines logs: no longer depend on the steps response naming its pipeline.
+
 ## [0.5.0] - 2026-10-31
 
 prw now works with Bitbucket Cloud as well as GitHub, and `prw dashboard` shows all your PRs across repositories in one live table, grouped by task, with one column per target branch — handy when a change travels dev → rc → master as cherry-picks.
