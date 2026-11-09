@@ -166,7 +166,7 @@ func TestSync_TwoHostsKeepTheirPRsApart(t *testing.T) {
 	bbAPI.prs = map[string]*github.PullRequest{"acme/api/7": openReviewPR(7)}
 	bb := &BitbucketFinder{API: bbAPI, User: me, Workspaces: []string{"acme"}}
 
-	res, err := Sync(context.Background(), []Finder{GitHubFinder{gh}, bb}, []string{config.AutoWatchMine, config.AutoWatchReviewRequested})
+	res, err := Sync(context.Background(), []Finder{GitHubFinder{Searcher: gh}, bb}, []string{config.AutoWatchMine, config.AutoWatchReviewRequested})
 	if err != nil {
 		t.Fatal(err)
 	}

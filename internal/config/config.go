@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,6 +28,11 @@ type Config struct {
 	WebhookURL          string `json:"webhook_url,omitempty"`
 	WebhookFormat       string `json:"webhook_format,omitempty"`
 	GitHubToken         string `json:"github_token,omitempty"`
+	// GitHubEnterpriseURL is the web address of a GitHub Enterprise Server or GHE.com
+	// instance (e.g. https://github.acme.com) whose PRs prw watches alongside
+	// github.com; GitHubEnterpriseToken is its token.
+	GitHubEnterpriseURL   string `json:"github_enterprise_url,omitempty"`
+	GitHubEnterpriseToken string `json:"github_enterprise_token,omitempty"`
 	// BitbucketToken and BitbucketEmail authenticate against Bitbucket Cloud: an
 	// Atlassian API token with the account's email (Basic auth), or a workspace /
 	// project / repository access token alone (Bearer). See ResolveBitbucketAuth.
@@ -421,19 +427,24 @@ const (
 	ghAuthTokenGitHubHost = "github.com"
 )
 
-// GHAuthToken asks the GitHub CLI for its token, so anyone logged in with
+// GHAuthToken asks the GitHub CLI for its github.com token, so anyone logged in with
 // `gh auth login` (including users running prw as a gh extension) needs no extra
 // setup. It is a variable so tests can replace it and never run the real gh.
 var GHAuthToken = func() (string, error) {
+	// Ask for github.com's token explicitly rather than whatever GH_HOST points to.
+	return GHAuthTokenForHost(ghAuthTokenGitHubHost)
+}
+
+// GHAuthTokenForHost asks the GitHub CLI for its token for host (e.g. a GitHub
+// Enterprise host logged in with `gh auth login --hostname`). Tests replace it.
+var GHAuthTokenForHost = func(host string) (string, error) {
 	path, err := exec.LookPath("gh")
 	if err != nil {
 		return "", err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), ghAuthTokenTimeout)
 	defer cancel()
-	// prw only talks to api.github.com, so ask for that host's token explicitly
-	// rather than whatever GH_HOST points to.
-	out, err := exec.CommandContext(ctx, path, "auth", "token", "--hostname", ghAuthTokenGitHubHost).Output()
+	out, err := exec.CommandContext(ctx, path, "auth", "token", "--hostname", host).Output()
 	if err != nil {
 		return "", err
 	}
@@ -462,6 +473,53 @@ func (c *Config) ResolveToken() (token, source string) {
 func (c *Config) GetToken() string {
 	token, _ := c.ResolveToken()
 	return token
+}
+
+// Where ResolveEnterpriseToken found the GitHub Enterprise token.
+const (
+	TokenSourceGHEEnv     = "environment variable (GH_ENTERPRISE_TOKEN)"
+	TokenSourceGHEEnvAlt  = "environment variable (GITHUB_ENTERPRISE_TOKEN)"
+	TokenSourceGHECLIHint = "GitHub CLI (gh auth token --hostname %s)"
+)
+
+// EnterpriseHost returns the host name of github_enterprise_url (e.g.
+// "github.acme.com"), or "" if it isn't set or isn't a URL.
+func (c *Config) EnterpriseHost() string {
+	raw := strings.TrimSpace(c.GitHubEnterpriseURL)
+	if raw == "" {
+		return ""
+	}
+	if !strings.Contains(raw, "://") {
+		raw = "https://" + raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	return strings.ToLower(u.Host)
+}
+
+// ResolveEnterpriseToken returns the GitHub Enterprise token and where it came from,
+// checking in order: the config file, GH_ENTERPRISE_TOKEN, GITHUB_ENTERPRISE_TOKEN (the
+// GitHub CLI's variables), and `gh auth token --hostname <host>`.
+func (c *Config) ResolveEnterpriseToken() (token, source string) {
+	host := c.EnterpriseHost()
+	if host == "" {
+		return "", TokenSourceNone
+	}
+	if c.GitHubEnterpriseToken != "" {
+		return c.GitHubEnterpriseToken, TokenSourceConfig
+	}
+	if t := os.Getenv("GH_ENTERPRISE_TOKEN"); t != "" {
+		return t, TokenSourceGHEEnv
+	}
+	if t := os.Getenv("GITHUB_ENTERPRISE_TOKEN"); t != "" {
+		return t, TokenSourceGHEEnvAlt
+	}
+	if t, err := GHAuthTokenForHost(host); err == nil && t != "" {
+		return t, fmt.Sprintf(TokenSourceGHECLIHint, host)
+	}
+	return "", TokenSourceNone
 }
 
 // BitbucketAuth is how to authenticate against Bitbucket Cloud. With an Email, Token
