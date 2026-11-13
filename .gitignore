@@ -21,6 +21,7 @@ go.work
 # Build output
 /bin/
 /dist/
+/release/
 
 # IDE
 .idea/
@@ -35,4 +36,7 @@ Thumbs.db
 
 # Local config (for testing)
 .prw/
-prw
+
+# Binary built in the repository root (not the cmd/prw sources)
+/prw
+/prw.exe

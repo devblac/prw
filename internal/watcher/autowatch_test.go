@@ -286,12 +286,21 @@ func TestRun_PicksUpAutoWatchEnabledWhileRunning(t *testing.T) {
 	s := &fakeSearcher{results: map[string]*github.SearchResult{config.AutoWatchMine: found(2)}}
 	s.prs = map[string]*github.PullRequest{"owner/repo/1": newPR(1, "sha1"), "owner/repo/2": newPR(2, "sha2")}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	// Stop as soon as the search added PR 2, so a slow machine doesn't fail the test
+	// by missing a fixed deadline.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	go func() {
 		time.Sleep(300 * time.Millisecond)
 		// `prw watch --mine` in another terminal.
 		config.Update(func(c *config.Config) error { c.EnableAutoWatch(config.AutoWatchMine); return nil })
+		for ctx.Err() == nil {
+			if c, err := config.Load(); err == nil && len(c.WatchedPRs) == 2 {
+				cancel()
+				return
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
 	}()
 	New(s, cfg, &mockNotifier{}).Run(ctx)
 
