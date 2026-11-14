@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
@@ -297,8 +298,11 @@ var listCmd = &cobra.Command{
 
 		for _, pr := range cfg.WatchedPRs {
 			repo := fmt.Sprintf("%s/%s", pr.Owner, pr.Repo)
-			if forge.IsBitbucket(pr.Host) {
+			switch {
+			case forge.IsBitbucket(pr.Host):
 				repo = "bitbucket:" + repo
+			case forge.IsEnterprise(pr.Host):
+				repo = forge.NormalizeHost(pr.Host) + ":" + repo
 			}
 			prNum := fmt.Sprintf("#%d", pr.Number)
 			status := pr.LastKnownState
@@ -459,6 +463,15 @@ Press Ctrl+C to stop.`,
 		if f := bitbucketFinder(cfg, bb); f != nil {
 			w.AddFinder(f)
 		}
+		if host := cfg.EnterpriseHost(); host != "" {
+			ghe, err := enterpriseClient(cfg, host)
+			if err != nil {
+				fmt.Printf("Warning: %v\n", err)
+			} else {
+				w.SetClient(host, ghe)
+				w.AddFinder(watcher.GitHubFinder{Searcher: ghe, HostName: host})
+			}
+		}
 
 		// Setup signal handling
 		ctx, cancel := context.WithCancel(context.Background())
@@ -508,6 +521,11 @@ var configShowCmd = &cobra.Command{
 
 		_, tokenSource := cfg.ResolveToken()
 		fmt.Printf("github_token: %s\n", tokenSource)
+		if host := cfg.EnterpriseHost(); host != "" {
+			_, gheSource := cfg.ResolveEnterpriseToken()
+			fmt.Printf("github_enterprise_url: %s\n", cfg.GitHubEnterpriseURL)
+			fmt.Printf("github_enterprise_token: %s\n", gheSource)
+		}
 		bbAuth, bbSource := cfg.ResolveBitbucketAuth()
 		switch {
 		case bbAuth.Token == "":
@@ -539,6 +557,9 @@ Supported keys:
   - webhook_url: URL to POST notifications to
   - webhook_format: auto, slack, discord, or generic (default: auto, detected from the URL)
   - github_token: GitHub personal access token
+  - github_enterprise_url: web address of your GitHub Enterprise Server or GHE.com
+    instance (e.g. https://github.acme.com), watched alongside github.com
+  - github_enterprise_token: its token (default: GH_ENTERPRISE_TOKEN, or 'gh auth token --hostname <host>')
   - bitbucket_token: Bitbucket Cloud API token (with bitbucket_email), or an access token alone
   - bitbucket_email: the Atlassian account email that goes with an API token
   - bitbucket_workspaces: workspaces 'prw dashboard' looks in, comma-separated (default: all of yours)
@@ -587,6 +608,16 @@ func applyConfigSet(cfg *config.Config, key, value string) error {
 		cfg.WebhookFormat = format
 	case "github_token":
 		cfg.GitHubToken = value
+	case "github_enterprise_url":
+		if _, err := github.EnterpriseAPIURL(value); err != nil {
+			return err
+		}
+		if forge.IsBitbucket(value) || forge.NormalizeHost(hostOf(value)) == forge.GitHub {
+			return fmt.Errorf("github_enterprise_url is for GitHub Enterprise; github.com needs no setting")
+		}
+		cfg.GitHubEnterpriseURL = strings.TrimRight(strings.TrimSpace(value), "/")
+	case "github_enterprise_token":
+		cfg.GitHubEnterpriseToken = value
 	case "bitbucket_token":
 		cfg.BitbucketToken = value
 	case "bitbucket_email":
@@ -659,6 +690,10 @@ func applyConfigUnset(cfg *config.Config, key string) error {
 		cfg.WebhookFormat = ""
 	case "github_token":
 		cfg.GitHubToken = ""
+	case "github_enterprise_url":
+		cfg.GitHubEnterpriseURL = ""
+	case "github_enterprise_token":
+		cfg.GitHubEnterpriseToken = ""
 	case "bitbucket_token":
 		cfg.BitbucketToken = ""
 	case "bitbucket_email":
@@ -683,6 +718,18 @@ func applyConfigUnset(cfg *config.Config, key string) error {
 		return fmt.Errorf("unknown config key: %s", key)
 	}
 	return nil
+}
+
+// hostOf returns the host of a web address given with or without a scheme.
+func hostOf(webURL string) string {
+	raw := strings.TrimSpace(webURL)
+	if !strings.Contains(raw, "://") {
+		raw = "https://" + raw
+	}
+	if u, err := url.Parse(raw); err == nil {
+		return u.Host
+	}
+	return ""
 }
 
 var versionCmd = &cobra.Command{

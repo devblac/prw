@@ -425,7 +425,7 @@ func toolOK(summary string, data interface{}) mcpToolResult {
 
 var prURLSchema = map[string]interface{}{
 	"type":        "string",
-	"description": "GitHub pull request URL, e.g. https://github.com/owner/repo/pull/123",
+	"description": "Pull request URL on GitHub (https://github.com/owner/repo/pull/123), the configured GitHub Enterprise host, or Bitbucket Cloud (https://bitbucket.org/workspace/repo/pull-requests/7)",
 }
 
 var mcpTools = []map[string]interface{}{
