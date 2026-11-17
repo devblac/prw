@@ -43,7 +43,6 @@ type BitbucketFinder struct {
 	Now        func() time.Time
 
 	lastReviewScan time.Time
-	reviewFound    *Found
 }
 
 func (f *BitbucketFinder) Host() string { return forge.Bitbucket }
@@ -88,14 +87,17 @@ func (f *BitbucketFinder) Find(ctx context.Context, source string) (*Found, erro
 	case config.AutoWatchMine:
 		return f.mine(ctx)
 	case config.AutoWatchReviewRequested:
-		if f.reviewFound == nil || f.now().Sub(f.lastReviewScan) >= BitbucketReviewScanEvery {
-			found, err := f.scanReviews(ctx)
-			if err != nil {
-				return nil, err
-			}
-			f.reviewFound, f.lastReviewScan = found, f.now()
+		// Between scans there is no result to replay: an old one would bring back PRs
+		// that closed since, and notify about them again.
+		if !f.lastReviewScan.IsZero() && f.now().Sub(f.lastReviewScan) < BitbucketReviewScanEvery {
+			return nil, nil
 		}
-		return f.reviewFound, nil
+		found, err := f.scanReviews(ctx)
+		if err != nil {
+			return nil, err
+		}
+		f.lastReviewScan = f.now()
+		return found, nil
 	}
 	return nil, fmt.Errorf("unknown auto-watch source %q", source)
 }

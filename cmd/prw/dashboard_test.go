@@ -132,6 +132,17 @@ func TestShortDuration(t *testing.T) {
 	}
 }
 
+func TestAdvanceMergedCutoff(t *testing.T) {
+	now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+	f := advanceMergedCutoff(dashboard.Filter{MergedSince: now.Add(-72 * time.Hour)}, 24*time.Hour, now)
+	if !f.MergedSince.Equal(now.Add(-24 * time.Hour)) {
+		t.Errorf("cutoff = %s", f.MergedSince)
+	}
+	if f := advanceMergedCutoff(dashboard.Filter{}, 24*time.Hour, now); !f.MergedSince.IsZero() {
+		t.Errorf("without --merged the cutoff must stay unset: %s", f.MergedSince)
+	}
+}
+
 func TestSplitList(t *testing.T) {
 	if got := strings.Join(splitList(" dev, qa ,,main "), "|"); got != "dev|qa|main" {
 		t.Errorf("splitList = %s", got)

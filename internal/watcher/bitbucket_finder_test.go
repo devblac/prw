@@ -121,7 +121,9 @@ func TestBitbucketFinder_ReviewsSkipReviewedAndRescanEvery15Minutes(t *testing.T
 	}
 
 	now = now.Add(BitbucketReviewScanEvery - time.Second)
-	f.Find(context.Background(), config.AutoWatchReviewRequested)
+	if got, err := f.Find(context.Background(), config.AutoWatchReviewRequested); got != nil || err != nil {
+		t.Errorf("between scans Find must report nothing to apply, got %+v, %v", got, err)
+	}
 	if api.scans != 1 {
 		t.Errorf("rescanned after %s: %d scans", BitbucketReviewScanEvery-time.Second, api.scans)
 	}
@@ -183,6 +185,28 @@ func TestSync_TwoHostsKeepTheirPRsApart(t *testing.T) {
 	}
 	if fmt.Sprint(names) != "[acme/api#7 owner/repo#1 bitbucket:acme/api#1]" {
 		t.Errorf("watch list = %v", names)
+	}
+}
+
+func TestSync_ClosedReviewPRIsNotAddedBackBetweenScans(t *testing.T) {
+	useTempConfig(t)
+	saveConfig(t, &config.Config{AutoWatch: []string{config.AutoWatchReviewRequested}})
+	now := time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
+	api := &fakeLister{
+		repos:   map[string][]string{"acme": {"api"}},
+		reviews: map[string][]bitbucket.ListedPR{"acme/api": {listed("acme", "api", 1)}},
+	}
+	f := &BitbucketFinder{API: api, User: me, Workspaces: []string{"acme"}, Now: func() time.Time { return now }}
+	sources := []string{config.AutoWatchReviewRequested}
+	if res, err := Sync(context.Background(), []Finder{f}, sources); err != nil || len(res.Added) != 1 {
+		t.Fatalf("first sync: %+v, %v", res, err)
+	}
+
+	// prw run notified about the merge and dropped the PR.
+	config.Update(func(c *config.Config) error { c.WatchedPRs = nil; return nil })
+	now = now.Add(AutoWatchInterval)
+	if res, err := Sync(context.Background(), []Finder{f}, sources); err != nil || len(res.Added) != 0 {
+		t.Errorf("sync between scans must not add it back: %+v, %v", res, err)
 	}
 }
 

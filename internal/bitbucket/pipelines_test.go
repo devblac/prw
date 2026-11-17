@@ -146,3 +146,29 @@ func TestFailedJobLogs_UsesPipelinesLogs(t *testing.T) {
 		t.Errorf("Pipelines entry = %+v", logs[1])
 	}
 }
+
+func TestRunLog_StepsWithoutPipelineUUID(t *testing.T) {
+	var log string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.EscapedPath() {
+		case "/repositories/acme/api/pipelines/2435/steps/":
+			fmt.Fprint(w, `{"values": [{"uuid": "{s2}", "state": {"result": {"name": "FAILED"}}, "script_commands": [{"name": "npm test"}]}]}`)
+		case "/repositories/acme/api/pipelines/2435":
+			fmt.Fprint(w, `{"uuid": "{p1}"}`)
+		case "/repositories/acme/api/pipelines/%7Bp1%7D/steps/%7Bs2%7D/log":
+			log = r.URL.EscapedPath()
+			fmt.Fprint(w, stepLog)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	c := NewClient("me@example.com", "token")
+	c.SetBaseURL(srv.URL)
+
+	run := pipelineRun("p", "https://bitbucket.org/acme/api/addon/pipelines/home#!/results/2435")
+	got, err := c.RunLog(context.Background(), "acme", "api", run, 50)
+	if err != nil || got.Step != "npm test" || log == "" {
+		t.Errorf("got %+v, %v (log path %q)", got, err, log)
+	}
+}

@@ -154,7 +154,7 @@ func (c *Collector) applyCachedCI(it *Item) {
 func (c *Collector) storeCI(it Item) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.ci[it.Key()] = ciSnapshot{sha: it.HeadSHA, item: it, readAt: c.Now(), running: it.CI == "pending" || it.CI == ""}
+	c.ci[it.Key()] = ciSnapshot{sha: it.HeadSHA, item: it, readAt: c.Now(), running: it.CI == "pending" || it.CI == "" || it.CIDone < it.CITotal}
 }
 
 // Requests reports each source's requests in the last hour, e.g. "Bitbucket 312/h".

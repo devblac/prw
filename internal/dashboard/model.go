@@ -45,7 +45,9 @@ type Item struct {
 	State     string    `json:"state"` // open, merged, closed
 	Role      string    `json:"role"`  // mine, review
 	UpdatedAt time.Time `json:"updated_at"`
-	HeadSHA   string    `json:"sha,omitempty"`
+	// MergedAt is when the PR was merged, where the host says so (GitHub).
+	MergedAt *time.Time `json:"merged_at,omitempty"`
+	HeadSHA  string     `json:"sha,omitempty"`
 
 	// CI is the aggregated state (success, failure, error, pending, no_ci), empty
 	// until known; CIDone/CITotal count finished checks.
